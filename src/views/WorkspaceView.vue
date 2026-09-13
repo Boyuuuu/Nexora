@@ -32,7 +32,7 @@ onMounted(async () => {
   <WorkspaceLayout>
     <div v-if="!ready" class="booting">Opening your knowledge space…</div>
     <NoteView v-else-if="ui.mode.value === 'note'" />
-    <KnowledgeCanvas v-else-if="ui.mode.value === 'canvas'" />
+    <KnowledgeCanvas v-else-if="ui.mode.value === 'canvas'" :key="store.workspace.value?.id" />
     <ExploreView v-else />
   </WorkspaceLayout>
 </template>

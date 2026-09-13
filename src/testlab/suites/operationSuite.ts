@@ -473,16 +473,16 @@ export async function runOperationSuite(): Promise<SuiteResult> {
         'INVALID_BLOCK_DATA',
       )
       const d = await reject(
-        {
+        malformed({
           operation: 'update_block',
           workspace_id: wsId,
           note_id: noteId,
           block_id: 'block_002',
-          changes: { data: { content: '' } },
-        },
+          changes: { data: { content: 123 } },
+        }),
         'INVALID_BLOCK_DATA',
       )
-      return `type / missing title / wrong field / empty content：${[a, b, c, d].length} 项均被拒`
+      return `type / missing title / wrong field / non-string content：${[a, b, c, d].length} 项均被拒`
     }),
   )
 

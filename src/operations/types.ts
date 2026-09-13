@@ -25,6 +25,7 @@ export const OPERATION_TYPES = [
   'delete_node',
   'update_node',
   'move_node',
+  'move_nodes',
   'create_edge',
   'delete_edge',
 ] as const
@@ -109,7 +110,7 @@ export interface NodeInput {
   metadata?: Record<string, unknown>
 }
 
-/** `position` is owned by `move_node`, so it is absent here. */
+/** `position` is owned by the move operations, so it is absent here. */
 export interface NodeChanges {
   label?: string
   type?: GraphNodeType
@@ -152,6 +153,13 @@ export interface MoveNodeOperation {
   position: GraphNodePosition
 }
 
+/** One atomic layout change; null restores a node's unplaced state. */
+export interface MoveNodesOperation {
+  operation: 'move_nodes'
+  workspace_id: string
+  positions: { node_id: string; position: GraphNodePosition | null }[]
+}
+
 export interface CreateEdgeOperation {
   operation: 'create_edge'
   workspace_id: string
@@ -175,6 +183,7 @@ export type GraphOperation =
   | DeleteNodeOperation
   | UpdateNodeOperation
   | MoveNodeOperation
+  | MoveNodesOperation
   | CreateEdgeOperation
   | DeleteEdgeOperation
 

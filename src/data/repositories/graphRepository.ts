@@ -166,6 +166,22 @@ export const graphRepository = {
     return removedEdgeIds
   },
 
+  /** Save the whole layout in one transaction, preserving notes, metadata and relationships. */
+  async moveNodes(workspaceId: string, positions: { nodeId: string; position: GraphNodePosition | null }[]): Promise<void> {
+    await mutateGraph(workspaceId, STORES.workspaces, (graph) => {
+      const changes = new Map(positions.map(item => [item.nodeId, item.position]))
+      if (changes.size !== positions.length) throw new ValidationError('Duplicate node in layout')
+      const ids = new Set(graph.nodes.map(node => node.id))
+      for (const id of changes.keys()) if (!ids.has(id)) throw new NotFoundError(`Graph node not found: ${id}`)
+      return { ...graph, nodes: graph.nodes.map(node => {
+        if (!changes.has(node.id)) return node
+        const { position: _previous, ...base } = node
+        const position = changes.get(node.id)
+        return position === null ? base : { ...base, position }
+      }) }
+    })
+  },
+
   async addEdge(workspaceId: string, input: CreateGraphEdgeInput): Promise<GraphEdge> {
     const edge: GraphEdge = {
       id: input.id ?? createId('edge'),

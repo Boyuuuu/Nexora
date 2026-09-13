@@ -31,6 +31,11 @@ function requireNonEmptyString(value: unknown, field: string): string {
   return value
 }
 
+// Editable block fields may be blank while the user is composing a draft.
+function requireString(value: unknown, field: string): void {
+  if (typeof value !== 'string') fail(`${field} must be a string`)
+}
+
 function requireTimestamp(value: unknown, field: string): void {
   if (!isIsoTimestamp(value)) {
     fail(`${field} must be an ISO 8601 UTC timestamp`)
@@ -65,6 +70,9 @@ function requireOptionalTags(tags: unknown, field: string): void {
 
 export function validateWorkspace(workspace: Workspace): void {
   requireNonEmptyString(workspace.id, 'workspace.id')
+  if (workspace.sidebarOrder !== undefined) {
+    requireFiniteNumber(workspace.sidebarOrder, 'workspace.sidebarOrder')
+  }
   requireNonEmptyString(workspace.metadata?.name, 'workspace.metadata.name')
   if (
     workspace.metadata.description !== undefined &&
@@ -184,29 +192,31 @@ function validateBlockMetadata(metadata: BlockMetadata): void {
 }
 
 function validateBlockData(block: Block): void {
+  if (block.data?.title !== undefined) requireString(block.data.title, 'block.data.title')
   switch (block.type) {
     case 'text':
     case 'example':
-      requireNonEmptyString(block.data?.content, `block(${block.type}).data.content`)
+      requireString(block.data?.content, `block(${block.type}).data.content`)
       return
     case 'concept':
     case 'intuition':
-      requireNonEmptyString(block.data?.title, `block(${block.type}).data.title`)
-      requireNonEmptyString(block.data.content, `block(${block.type}).data.content`)
+      requireString(block.data?.title, `block(${block.type}).data.title`)
+      requireString(block.data.content, `block(${block.type}).data.content`)
       return
     case 'math':
-      requireNonEmptyString(block.data?.latex, 'block(math).data.latex')
+      requireString(block.data?.latex, 'block(math).data.latex')
+      if (block.data.explanation !== undefined) requireString(block.data.explanation, 'block(math).data.explanation')
       return
     case 'code':
       requireNonEmptyString(block.data?.language, 'block(code).data.language')
-      requireNonEmptyString(block.data.code, 'block(code).data.code')
+      requireString(block.data.code, 'block(code).data.code')
       return
     case 'exploration':
-      if (!Array.isArray(block.data?.items) || block.data.items.length === 0) {
-        fail('block(exploration).data.items must be a non-empty array')
+      if (!Array.isArray(block.data?.items)) {
+        fail('block(exploration).data.items must be an array')
       }
       block.data.items.forEach((item, index) =>
-        requireNonEmptyString(item, `block(exploration).data.items[${index}]`),
+        requireString(item, `block(exploration).data.items[${index}]`),
       )
       return
   }

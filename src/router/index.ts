@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import WorkspaceView from '../views/WorkspaceView.vue'
 import DataLayerTestLab from '../views/DataLayerTestLab.vue'
 import OperationsTestLab from '../views/OperationsTestLab.vue'
-import BackupView from '../views/BackupView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -28,8 +27,7 @@ const router = createRouter({
     {
       path: '/backup',
       name: 'backup',
-      component: BackupView,
-      meta: { title: 'Nexora · 备份与导入' },
+      redirect: { path: '/', query: { export: '1' } },
     },
   ],
   scrollBehavior() {

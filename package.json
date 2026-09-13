@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "test:workspace-navigation": "node scripts/verify-workspace-navigation.mjs",
+    "test:sidebar-editing": "node scripts/verify-sidebar-editing.mjs",
+    "test:transfer-dialog": "node scripts/verify-transfer-dialog.mjs",
+    "test:canvas": "node scripts/verify-canvas.mjs"
   },
   "dependencies": {
     "katex": "^0.18.7",

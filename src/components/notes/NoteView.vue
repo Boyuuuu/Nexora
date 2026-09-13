@@ -4,7 +4,7 @@ import AddBlockButton from './AddBlockButton.vue'
 import BlockCard from './BlockCard.vue'
 import NoteHeader from './NoteHeader.vue'
 
-const { store, ui, createNote, dropBlockBefore } = useWorkspaceActions()
+const { store, ui, dropBlockBefore } = useWorkspaceActions()
 
 async function onDropBefore(blockId: string, event: DragEvent): Promise<void> {
   const dragged = event.dataTransfer?.getData('text/nexora-block')
@@ -33,8 +33,7 @@ async function onDropBefore(blockId: string, event: DragEvent): Promise<void> {
     <div v-else class="empty">
       <p class="kicker">Note</p>
       <h1>Your knowledge starts here.</h1>
-      <p>Create your first note.</p>
-      <button type="button" class="primary" @click="createNote">＋ New Note</button>
+      <p>点击侧边栏 Notes 右侧的 ＋，创建这个工作区的第一篇笔记。</p>
     </div>
   </section>
 </template>
@@ -76,11 +75,6 @@ async function onDropBefore(blockId: string, event: DragEvent): Promise<void> {
 .empty p,
 .empty-blocks {
   margin: 0.7rem 0 0;
-}
-
-.empty .primary {
-  align-self: flex-start;
-  margin-top: 1.1rem;
 }
 
 .kicker {

@@ -21,6 +21,7 @@ import {
   handleDeleteEdge,
   handleDeleteNode,
   handleMoveNode,
+  handleMoveNodes,
   handleUpdateNode,
 } from './handlers/graphHandlers'
 import { isOperationType, type Operation, type OperationResult } from './types'
@@ -43,6 +44,8 @@ function dispatch(operation: Operation): Promise<string[]> {
       return handleUpdateNode(operation)
     case 'move_node':
       return handleMoveNode(operation)
+    case 'move_nodes':
+      return handleMoveNodes(operation)
     case 'create_edge':
       return handleCreateEdge(operation)
     case 'delete_edge':

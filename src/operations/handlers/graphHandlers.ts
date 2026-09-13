@@ -12,6 +12,7 @@ import type {
   DeleteNodeOperation,
   GraphOperation,
   MoveNodeOperation,
+  MoveNodesOperation,
   UpdateNodeOperation,
 } from '../types'
 import {
@@ -29,8 +30,9 @@ import {
   requireUnusedNodeId,
   requireWorkspace,
 } from '../validation'
+import { fail } from '../errors'
 
-/** `update_node` may reach these; `position` belongs to `move_node`. */
+/** `update_node` may reach these; `position` belongs to the move operations. */
 const NODE_CHANGE_FIELDS = ['label', 'type', 'note_id', 'metadata'] as const
 const NODE_IDENTITY_FIELDS = ['id', 'workspace_id', 'position'] as const
 
@@ -110,6 +112,24 @@ export async function handleMoveNode(operation: MoveNodeOperation): Promise<stri
 
   await graphRepository.updateNode(operation.workspace_id, nodeId, { position })
   return [nodeId]
+}
+
+export async function handleMoveNodes(operation: MoveNodesOperation): Promise<string[]> {
+  const graph = await loadGraph(operation)
+  if (!Array.isArray(operation.positions) || !operation.positions.length) {
+    fail('INVALID_OPERATION', 'positions must be a non-empty array', operation)
+  }
+  const seen = new Set<string>()
+  const positions = operation.positions.map(item => {
+    requireObject(operation, item, 'positions entry')
+    const nodeId = requireId(operation, item.node_id, 'node_id')
+    requireNode(operation, graph, nodeId)
+    if (seen.has(nodeId)) fail('INVALID_OPERATION', 'positions contains a duplicate node', operation)
+    seen.add(nodeId)
+    return { nodeId, position: item.position === null ? null : requirePosition(operation, item.position) }
+  })
+  await graphRepository.moveNodes(operation.workspace_id, positions)
+  return [...seen]
 }
 
 /** Deleting a node cascades to its edges, all of which are reported back. */

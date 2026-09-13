@@ -54,6 +54,31 @@ export function useWorkspaceActions() {
     }
   }
 
+  async function switchToWorkspace(id: string): Promise<boolean> {
+    if (store.workspace.value?.id === id) return true
+    await store.selectWorkspace(id)
+    if (store.lastError.value || store.workspace.value?.id !== id) {
+      ui.showToast('暂时无法打开这个工作区，请重试。')
+      return false
+    }
+    ui.clearSelection()
+    ui.requestFocusNode(null)
+    return true
+  }
+
+  async function createWorkspaceNote(id: string): Promise<boolean> {
+    const created = await failGuard(
+      () => store.createNote(id, 'Untitled'),
+      'Could not create a note.\nPlease try again.',
+    )
+    if (!created) return false
+    ui.clearSelection()
+    ui.requestFocusNode(null)
+    ui.touchRecent(created.id)
+    ui.setMode('note')
+    return true
+  }
+
   return {
     store,
     ui,
@@ -75,6 +100,30 @@ export function useWorkspaceActions() {
 
     openNote,
     openCanvas,
+    createWorkspaceNote,
+
+    async openWorkspaceNote(workspaceId: string, id: string): Promise<boolean> {
+      if (!await switchToWorkspace(workspaceId)) return false
+      if (!store.notes.value.some((item) => item.id === id && item.workspaceId === workspaceId)) {
+        ui.showToast('这篇笔记已不存在，请刷新目录后重试。')
+        return false
+      }
+      await store.selectNote(id)
+      if (store.lastError.value || store.note.value?.id !== id) {
+        ui.showToast('暂时无法打开这篇笔记，请重试。')
+        return false
+      }
+      ui.touchRecent(id)
+      ui.setMode('note')
+      ui.selectBlock(null)
+      return true
+    },
+
+    async openWorkspaceCanvas(id: string): Promise<boolean> {
+      if (!await switchToWorkspace(id)) return false
+      ui.setMode('canvas')
+      return true
+    },
 
     async createWorkspace(name = 'Untitled Workspace'): Promise<void> {
       const created = await failGuard(
@@ -143,46 +192,47 @@ export function useWorkspaceActions() {
     async createNote(): Promise<void> {
       const id = workspaceId()
       if (!id) return
-      const created = await failGuard(
-        () => store.createNote(id, 'Untitled'),
-        'Could not create a note.\nPlease try again.',
-      )
-      if (created) {
-        ui.touchRecent(created.id)
-        ui.setMode('note')
-        ui.selectBlock(null)
-      }
+      await createWorkspaceNote(id)
     },
 
-    async renameNote(id: string, title: string): Promise<void> {
+    async renameNote(id: string, title: string): Promise<boolean> {
       const trimmed = title.trim()
-      if (!trimmed) return
-      await failGuard(
-        async () => {
-          await store.renameNote(id, trimmed)
-          return true
-        },
+      if (!trimmed) return false
+      return !!await failGuard(
+        () => store.renameNote(id, trimmed),
         'Could not rename this note.\nPlease try again.',
       )
     },
 
-    async deleteNote(id: string): Promise<void> {
+    async deleteNote(id: string): Promise<boolean> {
       const ok = await ui.confirm({
         title: 'Delete this note?',
         message: 'The note and its blocks will be removed. Related nodes stay, but lose this link.',
         confirmLabel: 'Delete',
         danger: true,
       })
-      if (!ok) return
-      await failGuard(
-        async () => {
-          await store.deleteNote(id)
-          return true
-        },
+      if (!ok) return false
+      const wasSelected = store.note.value?.id === id
+      const previousWorkspaceId = store.workspace.value?.id
+      const deleted = await failGuard(
+        () => store.deleteNote(id),
         'Could not delete this note.\nPlease try again.',
       )
-      const next = store.notes.value[0]
-      if (next) await openNote(next.id)
+      if (!deleted) return false
+      if (wasSelected && !store.note.value && store.workspace.value?.id === previousWorkspaceId) {
+        ui.selectBlock(null)
+        const next = store.notes.value[0]
+        if (next) await store.selectNote(next.id)
+      }
+      return true
+    },
+
+    async moveWorkspace(id: string, targetId: string, after: boolean): Promise<boolean> {
+      return !!await failGuard(() => store.moveWorkspace(id, targetId, after), '无法保存 Workspace 顺序，请重试。')
+    },
+
+    async moveWorkspaceNote(workspaceId: string, id: string, targetId: string, after: boolean): Promise<boolean> {
+      return !!await failGuard(() => store.moveWorkspaceNote(workspaceId, id, targetId, after), '无法保存笔记顺序，请重试。')
     },
 
     async createBlock(type: BlockType): Promise<void> {
@@ -354,15 +404,23 @@ export function useWorkspaceActions() {
       if (result.success) ui.selectNode(id)
     },
 
-    async moveNode(nodeId: string, position: GraphNodePosition): Promise<void> {
+    async moveNode(nodeId: string, position: GraphNodePosition): Promise<boolean> {
       const ws = workspaceId()
-      if (!ws) return
-      await run({
+      if (!ws) return false
+      const result = await run({
         operation: 'move_node',
         workspace_id: ws,
         node_id: nodeId,
         position,
       })
+      return result.success
+    },
+
+    async moveNodes(positions: { node_id: string; position: GraphNodePosition | null }[]): Promise<boolean> {
+      const ws = workspaceId()
+      if (!ws || !positions.length) return false
+      const result = await run({ operation: 'move_nodes', workspace_id: ws, positions }, '暂时无法保存布局，请重试。')
+      return result.success
     },
 
     async updateNode(

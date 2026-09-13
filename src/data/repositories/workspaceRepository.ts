@@ -7,8 +7,13 @@ import type { Note } from '../models/note'
 import type { Workspace } from '../models/workspace'
 import { createId } from '../utils/id'
 import { nowIso } from '../utils/time'
+import { moveRelative } from '../utils/reorder'
 import { validateWorkspace } from '../validation'
-import { ConflictError, NotFoundError } from './internal'
+import { ConflictError, loadWorkspace, NotFoundError, saveWorkspace } from './internal'
+
+function bySidebarOrder(a: Workspace, b: Workspace): number {
+  return (a.sidebarOrder ?? Number.MAX_SAFE_INTEGER) - (b.sidebarOrder ?? Number.MAX_SAFE_INTEGER)
+}
 
 export interface CreateWorkspaceInput {
   name: string
@@ -59,9 +64,32 @@ export const workspaceRepository = {
   },
 
   getAll(): Promise<Workspace[]> {
-    return runTransaction(STORES.workspaces, 'readonly', (ctx) =>
-      ctx.store<Workspace>(STORES.workspaces).getAll(),
+    return runTransaction(STORES.workspaces, 'readonly', async (ctx) =>
+      (await ctx.store<Workspace>(STORES.workspaces).getAll()).sort(bySidebarOrder),
     )
+  },
+
+  /** Resolve relative placement against fresh records in a single transaction. */
+  async move(id: string, targetId: string, after: boolean): Promise<Workspace[]> {
+    return runTransaction(STORES.workspaces, 'readwrite', async (ctx) => {
+      const store = ctx.store<Workspace>(STORES.workspaces)
+      const current = (await store.getAll()).sort(bySidebarOrder)
+      const ids = moveRelative(current.map((item) => item.id), id, targetId, after)
+      const byId = new Map(current.map((item) => [item.id, item]))
+      const ordered = ids.map((itemId, sidebarOrder) => ({ ...byId.get(itemId)!, sidebarOrder }))
+      for (const item of ordered) await store.put(item)
+      return ordered
+    })
+  },
+
+  async moveNote(workspaceId: string, noteId: string, targetId: string, after: boolean): Promise<Workspace> {
+    return runTransaction(STORES.workspaces, 'readwrite', async (ctx) => {
+      const current = await loadWorkspace(ctx, workspaceId)
+      return saveWorkspace(ctx, {
+        ...current,
+        noteIds: moveRelative(current.noteIds, noteId, targetId, after),
+      })
+    })
   },
 
   async update(workspace: Workspace): Promise<Workspace> {

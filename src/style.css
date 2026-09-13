@@ -12,6 +12,14 @@
   --warn-bg: #ffedd5;
   --accent: #0f766e;
   --accent-ink: #ecfdf5;
+  --sidebar-bg: #fbf8f2;
+  --control-size: 36px;
+  --control-radius: 8px;
+  --icon-size: 20px;
+  --control-hover: rgba(28, 25, 23, 0.06);
+  --control-active: rgba(28, 25, 23, 0.1);
+  --panel-duration: 220ms;
+  --panel-easing: cubic-bezier(0.22, 1, 0.36, 1);
   --mono: 'IBM Plex Mono', 'Cascadia Code', ui-monospace, monospace;
   --sans: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
   --display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
@@ -21,6 +29,12 @@
     radial-gradient(circle at top left, #efe6d5 0%, transparent 40%),
     linear-gradient(180deg, #f7f3ea 0%, #efe8db 100%);
   font: 16px/1.5 var(--sans);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --panel-duration: 0ms;
+  }
 }
 
 * {
@@ -356,3 +370,19 @@ h3 {
     align-items: flex-start;
   }
 }
+.sidebar .sidebar-sortable { cursor: grab; touch-action: none; user-select: none; }
+.sidebar .sidebar-sortable:active { cursor: grabbing; }
+.sidebar .dragging { opacity: 0.4; }
+.sidebar .drop-before::before, .sidebar .drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
+.sidebar .drop-before::before { top: -2px; }
+.sidebar .drop-after::after { bottom: -2px; }

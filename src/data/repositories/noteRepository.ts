@@ -55,6 +55,19 @@ export const noteRepository = {
     )
   },
 
+  /** Read and rename atomically so typing in a block cannot be overwritten by a stale note. */
+  async rename(id: string, title: string): Promise<Note> {
+    return runTransaction(STORES.notes, 'readwrite', async (ctx) => {
+      const notes = ctx.store<Note>(STORES.notes)
+      const current = await notes.get(id)
+      if (!current) throw new NotFoundError(`Note not found: ${id}`)
+      const updated = { ...current, title, metadata: { ...current.metadata, updatedAt: nowIso() } }
+      validateNote(updated)
+      await notes.put(updated)
+      return updated
+    })
+  },
+
   async update(note: Note): Promise<Note> {
     validateNote(note)
     return runTransaction(STORES.notes, 'readwrite', async (ctx) => {

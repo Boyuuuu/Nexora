@@ -27,6 +27,7 @@ export type {
   GraphOperation,
   MoveBlockOperation,
   MoveNodeOperation,
+  MoveNodesOperation,
   NodeChanges,
   NodeInput,
   Operation,

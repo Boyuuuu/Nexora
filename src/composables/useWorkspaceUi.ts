@@ -31,12 +31,12 @@ const isSidebarOpen = ref(true)
 const isAiPanelOpen = ref(true)
 const recentNoteIds = ref<string[]>(readRecent())
 const focusNodeId = ref<string | null>(null)
-const searchQuery = ref('')
 const toast = ref<string | null>(null)
 const confirmRequest = ref<ConfirmRequest | null>(null)
 const aiMessages = ref<AiMessage[]>([])
 const aiDraft = ref('')
 const inspectOpen = ref(false)
+const transferDialog = ref<'export' | 'import' | null>(null)
 
 let confirmResolve: ((ok: boolean) => void) | null = null
 let toastTimer: ReturnType<typeof setTimeout> | null = null
@@ -87,12 +87,15 @@ export function useWorkspaceUi() {
     isAiPanelOpen,
     recentNoteIds: computed(() => recentNoteIds.value),
     focusNodeId,
-    searchQuery,
     toast: computed(() => toast.value),
     confirmRequest: computed(() => confirmRequest.value),
     aiMessages: computed(() => aiMessages.value),
     aiDraft,
     inspectOpen,
+    transferDialog: computed(() => transferDialog.value),
+
+    openTransfer(kind: 'export' | 'import'): void { transferDialog.value = kind },
+    closeTransfer(): void { transferDialog.value = null },
 
     setMode(next: WorkspaceMode): void {
       mode.value = next

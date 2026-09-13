@@ -413,10 +413,11 @@ export async function runTransferSuite(): Promise<SuiteResult> {
       ghostNoteLink.bundle.workspace.graph.nodes[1]!.noteId = 'note_ghost'
       await rejects(ghostNoteLink, 'BROKEN_REFERENCE', 'node.noteId')
 
-      const emptyBlock = clone(snapshot!)
-      const firstBlock = emptyBlock.bundle.notes[0]!.blocks[0]!
-      if (firstBlock.type === 'concept') firstBlock.data.content = ''
-      await rejects(emptyBlock, 'INVALID_SNAPSHOT', 'block data')
+      const invalidBlock = clone(snapshot!)
+      const firstBlock = invalidBlock.bundle.notes[0]!.blocks[0]!
+      // Blank drafts are valid; a non-string payload must still be rejected.
+      Object.assign(firstBlock.data, { content: null })
+      await rejects(invalidBlock, 'INVALID_SNAPSHOT', 'block data')
 
       const badAsset = clone(snapshot!)
       badAsset.bundle.assets[0]!.data = '!!!not-base64!!!'

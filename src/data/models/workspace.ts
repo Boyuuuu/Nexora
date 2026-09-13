@@ -13,6 +13,8 @@ export interface WorkspaceMetadata {
  */
 export interface Workspace {
   id: string
+  /** Optional for older backups; new sidebar ordering is persisted with the workspace. */
+  sidebarOrder?: number
   metadata: WorkspaceMetadata
   noteIds: string[]
   graph: Graph

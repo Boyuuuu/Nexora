@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { GraphNode } from '../../data'
 import { useWorkspaceActions } from '../../composables/useWorkspaceActions'
 
-const { store, renameNote, deleteNote, openCanvas } = useWorkspaceActions()
+const { store, renameNote, openCanvas } = useWorkspaceActions()
 
 const draft = ref(store.note.value?.title ?? '')
 const focused = ref(false)
@@ -97,9 +97,8 @@ onBeforeUnmount(() => {
         @blur="onTitleBlur"
         @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
       />
-      <button type="button" class="ghost danger" @click="deleteNote(store.note.value.id)">Delete</button>
     </div>
-    <p class="meta">{{ store.note.value.blocks.length }} blocks · click any block to write</p>
+    <p class="meta">{{ store.note.value.blocks.length }} blocks</p>
 
     <section class="related">
       <div class="related-top">
@@ -141,10 +140,6 @@ onBeforeUnmount(() => {
 
 .title::placeholder {
   color: #a8a29e;
-}
-
-.danger {
-  color: #9f1239;
 }
 
 .meta,

@@ -3,26 +3,27 @@ import { computed } from 'vue'
 import { useWorkspaceActions } from '../../composables/useWorkspaceActions'
 import { EXPLORE_SUGGESTIONS } from '../../composables/useWorkspaceUi'
 import { blockTitle } from '../../workspace/labels'
+import AppIcon from '../ui/AppIcon.vue'
 
 const { store, ui, sendAiPlaceholder } = useWorkspaceActions()
 
 const context = computed(() => {
-  if (ui.mode.value === 'canvas') {
-    const node = store.graph.value.nodes.find((item) => item.id === ui.selectedNodeId.value)
-    return {
-      kicker: 'Canvas',
-      title: node ? `Selected Node: ${node.label}` : 'Knowledge Canvas',
-      detail: node ? node.type : 'No node selected',
-    }
-  }
-
-  const note = store.note.value
-  const block = store.blocks.value.find((item) => item.id === ui.selectedBlockId.value)
-  return {
-    kicker: 'Note',
-    title: note?.title ?? 'No note open',
-    detail: block ? blockTitle(block) : 'No block selected',
-  }
+  const workspace = store.workspace.value
+  const node = ui.mode.value === 'canvas'
+    ? store.graph.value.nodes.find((item) => item.id === ui.selectedNodeId.value)
+    : undefined
+  const candidate = ui.mode.value === 'canvas'
+    ? store.notes.value.find((item) => item.id === node?.noteId)
+    : store.note.value
+  const note = candidate?.workspaceId === workspace?.id ? candidate : undefined
+  const block = ui.mode.value === 'note'
+    ? note?.blocks.find((item) => item.id === ui.selectedBlockId.value)
+    : undefined
+  return [
+    { kind: 'Workspace', name: workspace?.metadata.name, empty: '未选择' },
+    { kind: 'Note', name: note?.title, empty: '未选择' },
+    { kind: 'Block', name: block ? blockTitle(block) : undefined, empty: '未选中' },
+  ]
 })
 
 function send(text = ui.aiDraft.value): void {
@@ -36,23 +37,16 @@ function useSuggestion(text: string): void {
 </script>
 
 <template>
-  <aside class="ai nexora-scroll">
-    <header>
-      <p class="kicker">AI Explorer</p>
-      <h2>Explore your knowledge</h2>
-    </header>
-
-    <section class="context">
-      <p class="kicker">Context</p>
-      <strong>{{ context.kicker }}</strong>
-      <p>{{ context.title }}</p>
-      <small>{{ context.detail }}</small>
-    </section>
+  <aside class="ai nexora-scroll" aria-label="AI 聊天">
+    <ol class="context-path" aria-label="聊天上下文">
+      <li v-for="(part, index) in context" :key="part.kind" :class="{ empty: !part.name }" :title="`${part.kind}: ${part.name ?? part.empty}`">
+        <span class="context-kind">{{ part.kind }}</span>
+        <span class="context-name">{{ part.name ?? part.empty }}</span>
+        <AppIcon v-if="index < context.length - 1" name="chevron" class="context-separator" />
+      </li>
+    </ol>
 
     <div class="thread nexora-scroll">
-      <p v-if="!ui.aiMessages.value.length" class="placeholder">
-        Ask anything about the current note, block, or node. The model is not connected yet — this is the entrance.
-      </p>
       <article v-for="message in ui.aiMessages.value" :key="message.id" :class="['bubble', message.role]">
         <p>{{ message.content }}</p>
       </article>
@@ -78,6 +72,8 @@ function useSuggestion(text: string): void {
 <style scoped>
 .ai {
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -86,11 +82,12 @@ function useSuggestion(text: string): void {
   border-left: 1px solid var(--line);
 }
 
-header h2 {
-  margin: 0.15rem 0 0;
-  font-family: var(--display);
-  font-size: 1.25rem;
-}
+.context-path { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; flex: none; list-style: none; padding: 0 0 12px; margin: 0; border-bottom: 1px solid var(--line); }
+.context-path li { position: relative; min-width: 0; }
+.context-kind { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.context-name { display: block; margin-top: 4px; color: var(--ink); font-size: 13px; font-weight: 500; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty .context-name { color: var(--muted); font-weight: 400; }
+.context-separator { --icon-size: 10px; position: absolute; right: -14px; top: 24px; color: var(--muted); }
 
 .kicker {
   margin: 0;
@@ -101,7 +98,6 @@ header h2 {
   color: var(--muted);
 }
 
-.context,
 .suggested {
   padding: 0.7rem 0.75rem;
   border: 1px solid var(--line);
@@ -109,39 +105,13 @@ header h2 {
   background: #fff;
 }
 
-.context strong,
-.context p,
-.context small {
-  display: block;
-}
-
-.context strong {
-  margin-top: 0.35rem;
-  font-size: 0.78rem;
-  color: var(--accent);
-}
-
-.context p {
-  margin: 0.1rem 0 0;
-}
-
-.context small {
-  color: var(--muted);
-  margin-top: 0.15rem;
-}
-
 .thread {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-}
-
-.placeholder {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.92rem;
 }
 
 .bubble {

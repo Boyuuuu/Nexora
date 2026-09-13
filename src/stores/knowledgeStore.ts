@@ -31,6 +31,8 @@ const note = ref<Note | null>(null)
 const busy = ref(false)
 const lastError = ref<string | null>(null)
 
+export type WorkspaceNoteSummary = Pick<Note, 'id' | 'title' | 'workspaceId'>
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -51,6 +53,7 @@ async function guard<T>(work: () => Promise<T>): Promise<T | null> {
 
 async function readWorkspace(workspaceId: string): Promise<void> {
   const stored = await workspaceRepository.getById(workspaceId)
+  if (stored) updateWorkspaceEntry(stored)
   workspace.value = stored ?? null
   if (!stored) {
     notes.value = []
@@ -62,6 +65,22 @@ async function readWorkspace(workspaceId: string): Promise<void> {
   notes.value = stored.noteIds
     .map((id) => loaded.find((candidate) => candidate.id === id))
     .filter((candidate): candidate is Note => candidate !== undefined)
+}
+
+function updateWorkspaceEntry(updated: Workspace): void {
+  workspaces.value = workspaces.value.map((item) => item.id === updated.id ? updated : item)
+}
+
+/** Refresh a changed branch without navigating away from the current editor. */
+async function refreshBranch(workspaceId: string): Promise<void> {
+  const stored = await workspaceRepository.getById(workspaceId)
+  if (!stored) return
+  updateWorkspaceEntry(stored)
+  const loaded = await noteRepository.getByWorkspaceId(workspaceId)
+  if (workspace.value?.id !== workspaceId) return
+  workspace.value = stored
+  const byId = new Map(loaded.map((item) => [item.id, item]))
+  notes.value = stored.noteIds.flatMap((id) => byId.has(id) ? [byId.get(id)!] : [])
 }
 
 async function readNote(noteId: string): Promise<void> {
@@ -94,6 +113,18 @@ export function useKnowledgeStore() {
     async loadWorkspaces(): Promise<void> {
       await guard(async () => {
         workspaces.value = await workspaceRepository.getAll()
+      })
+    },
+
+    /** Read a tree branch without changing the active workspace, note, or editor state. */
+    async listWorkspaceNotes(workspaceId: string): Promise<WorkspaceNoteSummary[]> {
+      const stored = await workspaceRepository.getById(workspaceId)
+      if (!stored) return []
+      const loaded = await noteRepository.getByWorkspaceId(workspaceId)
+      const byId = new Map(loaded.map((item) => [item.id, item]))
+      return stored.noteIds.flatMap((id) => {
+        const item = byId.get(id)
+        return item ? [{ id: item.id, title: item.title, workspaceId: item.workspaceId }] : []
       })
     },
 
@@ -211,28 +242,44 @@ export function useKnowledgeStore() {
       })
     },
 
-    async renameNote(noteId: string, title: string): Promise<void> {
-      await guard(async () => {
-        const current = await noteRepository.getById(noteId)
-        if (!current) {
-          throw new Error(`Note not found: ${noteId}`)
-        }
-        const updated = await noteRepository.update({ ...current, title })
-        note.value = updated
-        await readWorkspace(updated.workspaceId)
+    async renameNote(noteId: string, title: string): Promise<Note | null> {
+      return guard(async () => {
+        const updated = await noteRepository.rename(noteId, title.trim())
+        if (note.value?.id === noteId) note.value = updated
+        await refreshBranch(updated.workspaceId)
+        return updated
       })
     },
 
-    async deleteNote(noteId: string): Promise<void> {
-      await guard(async () => {
+    async deleteNote(noteId: string): Promise<boolean | null> {
+      return guard(async () => {
         const current = await noteRepository.getById(noteId)
         await noteRepository.delete(noteId)
         if (note.value?.id === noteId) {
           note.value = null
         }
         if (current) {
-          await readWorkspace(current.workspaceId)
+          await refreshBranch(current.workspaceId)
         }
+        return true
+      })
+    },
+
+    async moveWorkspace(id: string, targetId: string, after: boolean): Promise<boolean | null> {
+      return guard(async () => {
+        workspaces.value = await workspaceRepository.move(id, targetId, after)
+        if (workspace.value) {
+          workspace.value = workspaces.value.find((item) => item.id === workspace.value?.id) ?? workspace.value
+        }
+        return true
+      })
+    },
+
+    async moveWorkspaceNote(workspaceId: string, id: string, targetId: string, after: boolean): Promise<boolean | null> {
+      return guard(async () => {
+        await workspaceRepository.moveNote(workspaceId, id, targetId, after)
+        await refreshBranch(workspaceId)
+        return true
       })
     },
   }
