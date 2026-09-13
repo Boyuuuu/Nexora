@@ -25,9 +25,11 @@ function onDoc(event: MouseEvent): void {
 onMounted(() => document.addEventListener('mousedown', onDoc))
 onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
 
-function edit(): void {
+function focusBlock(): void {
   ui.selectBlock(props.block.id)
   close()
+  const root = document.querySelector(`[data-block-id="${props.block.id}"] .title`) as HTMLElement | null
+  root?.focus()
 }
 
 async function duplicate(): Promise<void> {
@@ -60,7 +62,7 @@ function ask(text: string): void {
   <div ref="root" class="menu-wrap">
     <button type="button" class="handle" aria-label="Block menu" @click="open = !open">⋮⋮</button>
     <div v-if="open" class="menu">
-      <button type="button" @click="edit">Edit</button>
+      <button type="button" @click="focusBlock">Focus</button>
       <button type="button" @click="duplicate">Duplicate</button>
       <button type="button" @click="move('up')">Move Up</button>
       <button type="button" @click="move('down')">Move Down</button>

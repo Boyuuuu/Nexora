@@ -36,7 +36,7 @@ function useSuggestion(text: string): void {
 </script>
 
 <template>
-  <aside class="ai">
+  <aside class="ai nexora-scroll">
     <header>
       <p class="kicker">AI Explorer</p>
       <h2>Explore your knowledge</h2>
@@ -49,7 +49,7 @@ function useSuggestion(text: string): void {
       <small>{{ context.detail }}</small>
     </section>
 
-    <div class="thread">
+    <div class="thread nexora-scroll">
       <p v-if="!ui.aiMessages.value.length" class="placeholder">
         Ask anything about the current note, block, or node. The model is not connected yet — this is the entrance.
       </p>

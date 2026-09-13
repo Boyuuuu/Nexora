@@ -1,15 +1,25 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { GraphNode } from '../../data'
 import { useWorkspaceActions } from '../../composables/useWorkspaceActions'
 
 const { store, renameNote, deleteNote, openCanvas } = useWorkspaceActions()
 
 const draft = ref(store.note.value?.title ?? '')
+const focused = ref(false)
+let renameTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(
+  () => store.note.value?.id,
+  () => {
+    draft.value = store.note.value?.title ?? ''
+  },
+)
+
 watch(
   () => store.note.value?.title,
   (title) => {
-    draft.value = title ?? ''
+    if (!focused.value) draft.value = title ?? ''
   },
 )
 
@@ -41,26 +51,55 @@ const chips = computed(() => {
 async function commitTitle(): Promise<void> {
   const note = store.note.value
   if (!note) return
-  if (draft.value.trim() && draft.value.trim() !== note.title) {
-    await renameNote(note.id, draft.value)
-  } else {
+  const next = draft.value.trim()
+  if (!next) {
     draft.value = note.title
+    return
   }
+  if (next !== note.title) await renameNote(note.id, next)
+}
+
+function onTitleInput(): void {
+  if (renameTimer) clearTimeout(renameTimer)
+  renameTimer = setTimeout(() => {
+    void commitTitle()
+  }, 450)
+}
+
+async function onTitleBlur(): Promise<void> {
+  focused.value = false
+  if (renameTimer) {
+    clearTimeout(renameTimer)
+    renameTimer = null
+  }
+  await commitTitle()
 }
 
 function openRelated(nodeId?: string): void {
   const target = nodeId ?? chips.value[0]?.id
   void openCanvas(target)
 }
+
+onBeforeUnmount(() => {
+  if (renameTimer) clearTimeout(renameTimer)
+})
 </script>
 
 <template>
   <header v-if="store.note.value" class="note-head">
     <div class="title-row">
-      <input v-model="draft" class="title" @blur="commitTitle" @keydown.enter.prevent="commitTitle" />
-      <button type="button" class="ghost" @click="deleteNote(store.note.value.id)">Delete</button>
+      <input
+        v-model="draft"
+        class="title"
+        placeholder="Untitled"
+        @focus="focused = true"
+        @input="onTitleInput"
+        @blur="onTitleBlur"
+        @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
+      />
+      <button type="button" class="ghost danger" @click="deleteNote(store.note.value.id)">Delete</button>
     </div>
-    <p class="meta">{{ store.note.value.blocks.length }} blocks · Knowledge document</p>
+    <p class="meta">{{ store.note.value.blocks.length }} blocks · click any block to write</p>
 
     <section class="related">
       <div class="related-top">
@@ -79,7 +118,7 @@ function openRelated(nodeId?: string): void {
 
 <style scoped>
 .note-head {
-  margin-bottom: 1.15rem;
+  margin-bottom: 1rem;
 }
 
 .title-row {
@@ -91,12 +130,21 @@ function openRelated(nodeId?: string): void {
 .title {
   flex: 1;
   border: 0;
+  outline: none;
   background: transparent;
   font-family: var(--display);
   font-size: clamp(1.7rem, 4vw, 2.3rem);
   line-height: 1.15;
   padding: 0;
   color: inherit;
+}
+
+.title::placeholder {
+  color: #a8a29e;
+}
+
+.danger {
+  color: #9f1239;
 }
 
 .meta,

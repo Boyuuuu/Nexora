@@ -168,6 +168,28 @@ export function useKnowledgeStore() {
       })
     },
 
+    async renameWorkspace(workspaceId: string, name: string): Promise<Workspace | null> {
+      return guard(async () => {
+        const trimmed = name.trim()
+        if (!trimmed) {
+          throw new Error('Workspace name cannot be empty')
+        }
+        const current = await workspaceRepository.getById(workspaceId)
+        if (!current) {
+          throw new Error(`Workspace not found: ${workspaceId}`)
+        }
+        const updated = await workspaceRepository.update({
+          ...current,
+          metadata: { ...current.metadata, name: trimmed },
+        })
+        workspaces.value = await workspaceRepository.getAll()
+        if (workspace.value?.id === workspaceId) {
+          workspace.value = updated
+        }
+        return updated
+      })
+    },
+
     async deleteWorkspace(workspaceId: string): Promise<void> {
       await guard(async () => {
         await workspaceRepository.delete(workspaceId)

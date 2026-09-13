@@ -6,10 +6,6 @@ import NoteHeader from './NoteHeader.vue'
 
 const { store, ui, createNote, dropBlockBefore } = useWorkspaceActions()
 
-function onEdit(blockId: string): void {
-  ui.selectBlock(blockId)
-}
-
 async function onDropBefore(blockId: string, event: DragEvent): Promise<void> {
   const dragged = event.dataTransfer?.getData('text/nexora-block')
   if (dragged) await dropBlockBefore(dragged, blockId)
@@ -25,8 +21,8 @@ async function onDropBefore(blockId: string, event: DragEvent): Promise<void> {
           v-for="block in store.blocks.value"
           :key="block.id"
           :block="block"
-          :editing="ui.selectedBlockId.value === block.id"
-          @edit="onEdit(block.id)"
+          :active="ui.selectedBlockId.value === block.id"
+          @activate="ui.selectBlock(block.id)"
           @drop-before="onDropBefore(block.id, $event)"
         />
       </div>
@@ -47,13 +43,14 @@ async function onDropBefore(blockId: string, event: DragEvent): Promise<void> {
 .note-view {
   max-width: 760px;
   margin: 0 auto;
-  padding: 1.6rem 1.4rem 3rem;
+  padding: 1.75rem clamp(1rem, 3vw, 1.75rem) 3.5rem;
+  padding-right: clamp(1.25rem, 3.5vw, 2rem);
 }
 
 .blocks {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.35rem;
 }
 
 .empty,

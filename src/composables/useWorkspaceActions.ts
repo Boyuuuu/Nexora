@@ -76,6 +76,70 @@ export function useWorkspaceActions() {
     openNote,
     openCanvas,
 
+    async createWorkspace(name = 'Untitled Workspace'): Promise<void> {
+      const created = await failGuard(
+        () => store.createWorkspace(name.trim() || 'Untitled Workspace'),
+        'Could not create a workspace.\nPlease try again.',
+      )
+      if (created) {
+        await store.selectNote(null)
+        ui.setMode('note')
+        ui.clearSelection()
+      }
+    },
+
+    async renameWorkspace(id: string, name: string): Promise<void> {
+      const trimmed = name.trim()
+      if (!trimmed) return
+      await failGuard(
+        async () => {
+          await store.renameWorkspace(id, trimmed)
+          return true
+        },
+        'Could not rename this workspace.\nPlease try again.',
+      )
+    },
+
+    async deleteWorkspace(id: string): Promise<void> {
+      const current = store.workspaces.value.find((item) => item.id === id)
+      const ok = await ui.confirm({
+        title: 'Delete this workspace?',
+        message: current
+          ? `“${current.metadata.name}” and all of its notes, graph, and related data will be removed.`
+          : 'This workspace and all of its data will be removed.',
+        confirmLabel: 'Delete',
+        danger: true,
+      })
+      if (!ok) return
+
+      const wasSelected = store.workspace.value?.id === id
+      const remaining = store.workspaces.value.filter((item) => item.id !== id)
+
+      await failGuard(
+        async () => {
+          await store.deleteWorkspace(id)
+          return true
+        },
+        'Could not delete this workspace.\nPlease try again.',
+      )
+
+      if (wasSelected) {
+        const next = remaining[0]
+        if (next) {
+          await store.selectWorkspace(next.id)
+          const first = store.notes.value[0]
+          if (first) await openNote(first.id)
+          else {
+            await store.selectNote(null)
+            ui.setMode('note')
+          }
+        } else {
+          ui.clearSelection()
+          ui.setMode('note')
+        }
+      }
+    },
+
     async createNote(): Promise<void> {
       const id = workspaceId()
       if (!id) return

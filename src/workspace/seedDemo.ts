@@ -40,7 +40,7 @@ const ATTENTION_BLOCKS: SeedBlock[] = [
     type: 'math',
     data: {
       title: '数学表达',
-      latex: 'Attention(Q, K, V) = softmax(QK^T / \\sqrt{d_k}) V',
+      latex: '\\mathrm{Attention}(Q,K,V)=\\mathrm{softmax}\\left(\\frac{QK^{T}}{\\sqrt{d_k}}\\right)V',
       explanation: '除以 √d_k 是为了避免点积随维度增大而把 softmax 推向极端。',
     },
   },
@@ -110,7 +110,7 @@ const SELF_ATTENTION_BLOCKS: SeedBlock[] = [
     type: 'math',
     data: {
       title: 'QKV',
-      latex: 'Q = XW_Q,\\; K = XW_K,\\; V = XW_V',
+      latex: 'Q=XW_Q,\\quad K=XW_K,\\quad V=XW_V',
       explanation: '三个线性投影把同一输入映射到提问、检索与内容三个角色。',
     },
   },

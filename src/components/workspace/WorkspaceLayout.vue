@@ -48,7 +48,7 @@ function closeDrawers(): void {
   >
     <WorkspaceHeader class="header" />
     <WorkspaceSidebar class="sidebar" />
-    <main class="main">
+    <main class="main nexora-scroll">
       <slot />
     </main>
     <div class="right">
@@ -84,7 +84,7 @@ function closeDrawers(): void {
 }
 
 .workspace.sidebar-open {
-  --sidebar-w: 260px;
+  --sidebar-w: 280px;
 }
 
 .workspace.right-open {
@@ -104,6 +104,8 @@ function closeDrawers(): void {
   grid-area: main;
   min-width: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
 }
 
 .right {

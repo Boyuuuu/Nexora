@@ -44,7 +44,7 @@ function close(): void {
 </script>
 
 <template>
-  <aside v-if="node || edge" class="inspector">
+  <aside v-if="node || edge" class="inspector nexora-scroll">
     <header>
       <p class="kicker">{{ node ? 'Knowledge Node' : 'Relationship' }}</p>
       <button type="button" class="ghost" @click="close">Close</button>
