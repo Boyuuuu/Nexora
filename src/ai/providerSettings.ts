@@ -7,9 +7,9 @@ export type StructuredResponseFormat = 'json_schema' | 'json_object'
 export interface StructuredSettings {
   /** Bearer token for an OpenAI-compatible Chat Completions API. */
   apiKey: string
-  /** Dev default `/openai` (Vite proxy). Production: full origin or your own proxy. */
+  /** OpenAI-compatible Chat Completions base URL (e.g. /openai or https://api.example.com). Empty until configured. */
   baseUrl: string
-  /** e.g. gpt-4o-mini, deepseek-chat, moonshot-v1-8k — must support JSON mode / schema. */
+  /** Model id (e.g. gpt-4o-mini, deepseek-chat). Empty until configured. */
   model: string
   /**
    * json_schema = API-enforced schema (preferred).
@@ -38,8 +38,8 @@ export function defaultStructuredSettings(): StructuredSettings {
     : ''
   return {
     apiKey: envKey,
-    baseUrl: envBase || '/openai',
-    model: envModel || 'gpt-4o-mini',
+    baseUrl: envBase,
+    model: envModel,
     responseFormat: 'json_schema',
   }
 }
@@ -102,8 +102,8 @@ export function writeAiProviderSettings(settings: AiProviderSettings): void {
     },
     structured: {
       apiKey: settings.structured.apiKey.trim(),
-      baseUrl: settings.structured.baseUrl.trim().replace(/\/$/, '') || '/openai',
-      model: settings.structured.model.trim() || 'gpt-4o-mini',
+      baseUrl: settings.structured.baseUrl.trim().replace(/\/$/, ''),
+      model: settings.structured.model.trim(),
       responseFormat: settings.structured.responseFormat,
     },
   }))
