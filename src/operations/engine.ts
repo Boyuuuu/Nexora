@@ -13,6 +13,7 @@ import {
   handleCreateBlock,
   handleDeleteBlock,
   handleMoveBlock,
+  handleReplaceBlock,
   handleUpdateBlock,
 } from './handlers/blockHandlers'
 import {
@@ -34,6 +35,8 @@ function dispatch(operation: Operation): Promise<string[]> {
       return handleDeleteBlock(operation)
     case 'update_block':
       return handleUpdateBlock(operation)
+    case 'replace_block':
+      return handleReplaceBlock(operation)
     case 'move_block':
       return handleMoveBlock(operation)
     case 'create_node':

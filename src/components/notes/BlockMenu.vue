@@ -3,11 +3,13 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Block } from '../../data'
 import { ASK_AI_PROMPTS } from '../../composables/useWorkspaceUi'
 import { useWorkspaceActions } from '../../composables/useWorkspaceActions'
+import { useAiEditor } from '../../composables/useAiEditor'
 
 const props = defineProps<{ block: Block }>()
 
-const { ui, duplicateBlock, deleteBlock, moveBlockByDirection, convertBlockToNode, askAiAboutBlock } =
+const { ui, duplicateBlock, deleteBlock, moveBlockByDirection, convertBlockToNode } =
   useWorkspaceActions()
+const editor = useAiEditor()
 
 const open = ref(false)
 const askOpen = ref(false)
@@ -54,7 +56,7 @@ async function convert(): Promise<void> {
 
 function ask(text: string): void {
   close()
-  askAiAboutBlock(props.block, text)
+  editor.askAboutBlock(props.block.id, text)
 }
 </script>
 

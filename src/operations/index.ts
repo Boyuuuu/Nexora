@@ -28,6 +28,7 @@ export type {
   MoveBlockOperation,
   MoveNodeOperation,
   MoveNodesOperation,
+  ReplaceBlockOperation,
   NodeChanges,
   NodeInput,
   Operation,

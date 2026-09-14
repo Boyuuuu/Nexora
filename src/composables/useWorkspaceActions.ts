@@ -6,6 +6,7 @@ import { defaultBlockInput, duplicateBlockInput } from '../workspace/blockDefaul
 import { blockTitle, nodeTypeFromBlock } from '../workspace/labels'
 import { friendlyOperationError, logOperationFailure } from '../workspace/operationErrors'
 import { useWorkspaceUi } from './useWorkspaceUi'
+import { useAiEditor } from './useAiEditor'
 
 export function useWorkspaceActions() {
   const store = useKnowledgeStore()
@@ -375,16 +376,7 @@ export function useWorkspaceActions() {
     },
 
     askAiAboutBlock(block: Block, prompt: string): void {
-      ui.selectBlock(block.id)
-      ui.inspectOpen.value = false
-      ui.openAiPanel()
-      ui.aiDraft.value = prompt
-      ui.pushAiMessage('user', prompt)
-      ui.pushAiMessage(
-        'assistant',
-        'AI connection is not configured yet.\nThis panel is the future exploration entrance — your question and the current context are ready for a model.',
-      )
-      ui.aiDraft.value = ''
+      useAiEditor().askAboutBlock(block.id, prompt)
     },
 
     async createNode(label: string, type: GraphNodeType, position?: GraphNodePosition): Promise<void> {

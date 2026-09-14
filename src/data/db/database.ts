@@ -4,6 +4,10 @@ import { DB_NAME, DB_VERSION, type StoreName } from './schema'
 /**
  * The only module that touches raw IndexedDB APIs. Everything above it works
  * with promises and plain domain objects.
+ *
+ * The connection is cached, but browsers may close it after long idle / tab
+ * suspension. Lifecycle handlers + a single InvalidStateError retry keep
+ * reads and writes working without a full page reload.
  */
 
 export class DatabaseError extends Error {
@@ -12,10 +16,37 @@ export class DatabaseError extends Error {
 
 let connection: Promise<IDBDatabase> | null = null
 
+function clearConnectionIfCurrent(candidate: Promise<IDBDatabase>): void {
+  if (connection === candidate) {
+    connection = null
+  }
+}
+
+function attachConnectionLifecycle(db: IDBDatabase, ownedBy: Promise<IDBDatabase>): void {
+  const forget = () => clearConnectionIfCurrent(ownedBy)
+
+  db.onversionchange = () => {
+    forget()
+    try {
+      db.close()
+    } catch {
+      // Already closing or closed.
+    }
+  }
+
+  // Fired for unexpected closes (idle eviction, storage pressure, etc.).
+  // Not fired when we call db.close() ourselves.
+  db.onclose = () => {
+    forget()
+  }
+}
+
 export function openDatabase(): Promise<IDBDatabase> {
   if (connection) {
     return connection
   }
+
+  let owned!: Promise<IDBDatabase>
 
   const pending = new Promise<IDBDatabase>((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
@@ -30,10 +61,7 @@ export function openDatabase(): Promise<IDBDatabase> {
     }
     request.onsuccess = () => {
       const db = request.result
-      db.onversionchange = () => {
-        db.close()
-        connection = null
-      }
+      attachConnectionLifecycle(db, owned)
       resolve(db)
     }
     request.onerror = () => reject(toDatabaseError(request.error, `Failed to open ${DB_NAME}`))
@@ -41,18 +69,24 @@ export function openDatabase(): Promise<IDBDatabase> {
       reject(new DatabaseError(`${DB_NAME} upgrade is blocked by another open tab`))
   })
 
-  connection = pending.catch((error: unknown) => {
-    connection = null
+  owned = pending.catch((error: unknown) => {
+    clearConnectionIfCurrent(owned)
     throw error
   })
-
-  return connection
+  connection = owned
+  return owned
 }
 
 export function closeDatabase(): void {
   const pending = connection
   connection = null
-  void pending?.then((db) => db.close()).catch(() => undefined)
+  void pending
+    ?.then((db) => {
+      db.onversionchange = null
+      db.onclose = null
+      db.close()
+    })
+    .catch(() => undefined)
 }
 
 /** Test helper: drops the whole database so a verification run starts clean. */
@@ -85,15 +119,43 @@ export interface TransactionContext {
  * Runs `work` inside a single IndexedDB transaction. `work` may only await
  * promises produced by the accessors it is given — awaiting anything else lets
  * the transaction auto-commit before the work finishes.
+ *
+ * If the cached connection was closed underneath us, reopen once and retry.
+ * A transaction started on a closing connection never commits, so retrying is safe.
  */
 export async function runTransaction<T>(
   stores: StoreName | StoreName[],
   mode: IDBTransactionMode,
   work: (ctx: TransactionContext) => T | Promise<T>,
 ): Promise<T> {
+  try {
+    return await runTransactionOnce(stores, mode, work)
+  } catch (error) {
+    if (!isClosedConnectionError(error)) {
+      throw error
+    }
+    connection = null
+    return runTransactionOnce(stores, mode, work)
+  }
+}
+
+async function runTransactionOnce<T>(
+  stores: StoreName | StoreName[],
+  mode: IDBTransactionMode,
+  work: (ctx: TransactionContext) => T | Promise<T>,
+): Promise<T> {
   const db = await openDatabase()
   const names = Array.isArray(stores) ? stores : [stores]
-  const tx = db.transaction(names, mode)
+
+  let tx: IDBTransaction
+  try {
+    tx = db.transaction(names, mode)
+  } catch (error) {
+    if (isClosedConnectionError(error)) {
+      connection = null
+    }
+    throw error
+  }
 
   const completion = new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve()
@@ -153,4 +215,17 @@ function abortQuietly(tx: IDBTransaction): void {
 
 function toDatabaseError(cause: DOMException | null, fallback: string): DatabaseError {
   return new DatabaseError(cause ? `${fallback}: ${cause.message}` : fallback)
+}
+
+/** True when the browser closed (or is closing) the IndexedDB connection. */
+function isClosedConnectionError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+
+  const name = 'name' in error ? String((error as { name: unknown }).name) : ''
+  const message = 'message' in error ? String((error as { message: unknown }).message) : ''
+
+  if (name === 'InvalidStateError') return true
+  if (/connection is clos/i.test(message)) return true
+  if (/Indexed Database server lost/i.test(message)) return true
+  return false
 }

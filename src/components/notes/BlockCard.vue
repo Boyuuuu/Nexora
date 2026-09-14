@@ -9,11 +9,14 @@ import MathFormula from './MathFormula.vue'
 const props = defineProps<{
   block: Block
   active?: boolean
+  preview?: string | null
+  canUndo?: boolean
 }>()
 
 const emit = defineEmits<{
   activate: []
   dropBefore: [event: DragEvent]
+  undoAi: []
 }>()
 
 const { updateBlock } = useWorkspaceActions()
@@ -229,7 +232,7 @@ const statusText = computed(() => {
 <template>
   <article
     class="block"
-    :class="[`type-${block.type}`, { active }]"
+    :class="[`type-${block.type}`, { active, preview: Boolean(preview), [`preview-${preview}`]: preview }]"
     :data-block-id="block.id"
     @dragover.prevent
     @drop="onDrop"
@@ -247,9 +250,13 @@ const statusText = computed(() => {
     <header class="head">
       <div class="meta">
         <span class="badge">{{ BLOCK_TYPE_LABELS[block.type] }}</span>
-        <span class="status">{{ statusText }}</span>
+        <span v-if="preview" class="status preview-tag">AI 预览 · {{ preview }}</span>
+        <span v-else class="status">{{ statusText }}</span>
       </div>
-      <BlockMenu :block="block" @click.stop />
+      <div class="head-actions">
+        <button v-if="canUndo" type="button" class="undo-ai" @click.stop="emit('undoAi')">撤销此块</button>
+        <BlockMenu :block="block" @click.stop />
+      </div>
     </header>
 
     <input
@@ -539,4 +546,16 @@ const statusText = computed(() => {
 .lang::placeholder {
   color: #a8a29e;
 }
+
+.head-actions { display: flex; align-items: center; gap: 4px; }
+.undo-ai {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 6px;
+}
+.block.preview { border-color: rgba(15, 118, 110, 0.35); background: rgba(236, 253, 245, 0.5); }
+.block.preview-delete { opacity: 0.55; background: rgba(254, 226, 226, 0.55); }
+.preview-tag { color: var(--accent) !important; }
 </style>

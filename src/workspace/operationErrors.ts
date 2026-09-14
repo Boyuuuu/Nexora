@@ -3,6 +3,7 @@ import type { OperationType } from '../operations'
 const FRIENDLY: Partial<Record<OperationType, string>> = {
   create_block: 'Could not add this block.\nPlease try again.',
   update_block: 'Could not save this block.\nPlease try again.',
+  replace_block: 'Could not convert this block.\nPlease try again.',
   delete_block: 'Could not delete this block.\nPlease try again.',
   move_block: 'Could not move this block.\nPlease try again.',
   create_node: 'Could not create this node.\nPlease try again.',

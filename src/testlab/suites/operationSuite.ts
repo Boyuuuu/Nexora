@@ -157,6 +157,42 @@ export async function runOperationSuite(): Promise<SuiteResult> {
   )
 
   items.push(
+    await check('replace_block 可改 type 并保留 id / createdAt', async () => {
+      const before = (await noteRepository.getById(noteId))!.blocks.find((block) => block.id === 'block_002')
+      if (!before) throw new Error('missing block_002')
+      await run({
+        operation: 'replace_block',
+        workspace_id: wsId,
+        note_id: noteId,
+        block_id: 'block_002',
+        block: {
+          id: 'block_002',
+          type: 'example',
+          data: { title: 'Example', content: 'a worked example' },
+          metadata: { source: 'ai' },
+        },
+      })
+      const after = (await noteRepository.getById(noteId))!.blocks.find((block) => block.id === 'block_002')
+      if (!after || after.type !== 'example') throw new Error('type was not replaced')
+      if (after.data.content !== 'a worked example') throw new Error('data not replaced')
+      if (after.metadata.createdAt !== before.metadata.createdAt) throw new Error('createdAt was rewritten')
+      const title = before.type === 'concept' || before.type === 'intuition' ? before.data.title : 'Concept'
+      await run({
+        operation: 'replace_block',
+        workspace_id: wsId,
+        note_id: noteId,
+        block_id: 'block_002',
+        block: {
+          id: 'block_002',
+          type: 'concept',
+          data: { title, content: '新的内容' },
+        },
+      })
+      return 'type converted in place, then restored'
+    }),
+  )
+
+  items.push(
     await check('move_block：B1 B2 B3 → B1 B3 B2', async () => {
       // Trim back to exactly B1 B2 B3 first.
       for (const id of ['block_head', 'block_mid']) {

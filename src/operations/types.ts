@@ -20,6 +20,7 @@ export const OPERATION_TYPES = [
   'create_block',
   'delete_block',
   'update_block',
+  'replace_block',
   'move_block',
   'create_node',
   'delete_node',
@@ -100,6 +101,18 @@ export interface MoveBlockOperation {
   after_block_id: BlockAnchorId
 }
 
+/**
+ * Replaces a block in place, including `type`. Identity (`id`) stays; timestamps
+ * are owned by the data layer. Used when an edit converts e.g. text → concept.
+ */
+export interface ReplaceBlockOperation {
+  operation: 'replace_block'
+  workspace_id: string
+  note_id: string
+  block_id: string
+  block: BlockInput
+}
+
 /** Mirrors `GraphNode`; `workspace_id` lives on the operation itself. */
 export interface NodeInput {
   id: string
@@ -176,6 +189,7 @@ export type BlockOperation =
   | CreateBlockOperation
   | DeleteBlockOperation
   | UpdateBlockOperation
+  | ReplaceBlockOperation
   | MoveBlockOperation
 
 export type GraphOperation =

@@ -123,7 +123,7 @@ function closeDrawers(): void {
 }
 
 .workspace.right-open {
-  --right-w: 340px;
+  --right-w: 400px;
 }
 
 .header {

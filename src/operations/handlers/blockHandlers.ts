@@ -6,6 +6,7 @@ import type {
   CreateBlockOperation,
   DeleteBlockOperation,
   MoveBlockOperation,
+  ReplaceBlockOperation,
   UpdateBlockOperation,
 } from '../types'
 import {
@@ -102,6 +103,28 @@ export async function handleUpdateBlock(operation: UpdateBlockOperation): Promis
   requireValidBlock(operation, withPatch(block, patch))
 
   await blockRepository.patch(note.id, blockId, patch)
+  return [blockId]
+}
+
+export async function handleReplaceBlock(operation: ReplaceBlockOperation): Promise<string[]> {
+  const note = await loadNote(operation)
+  const blockId = requireId(operation, operation.block_id, 'block_id')
+  const current = requireBlock(operation, note, blockId)
+
+  requireObject(operation, operation.block, 'block')
+  const input = operation.block
+  if (requireId(operation, input.id, 'block.id') !== blockId) {
+    fail('INVALID_OPERATION', 'replace_block.block.id must match block_id', operation)
+  }
+
+  const type = requireBlockType(operation, input.type)
+  requireKnownDataFields(operation, type, input.data)
+
+  const next = buildBlock(input)
+  next.metadata.createdAt = current.metadata.createdAt
+  requireValidBlock(operation, next)
+
+  await blockRepository.update(note.id, next)
   return [blockId]
 }
 
