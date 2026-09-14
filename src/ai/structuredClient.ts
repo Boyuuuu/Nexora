@@ -2,6 +2,7 @@ import {
   readAiProviderSettings,
   structuredConfigured,
   type StructuredResponseFormat,
+  type StructuredSettings,
 } from './providerSettings'
 import { structuredSchema, type StructuredSchemaName } from './schemas'
 
@@ -56,13 +57,15 @@ function asText(value: unknown): string {
 function extractContent(parsed: unknown): string {
   const record = parsed as {
     error?: { message?: string; code?: string }
-    choices?: Array<{ message?: Record<string, unknown> }>
+    choices?: Array<{ finish_reason?: string; message?: Record<string, unknown> }>
   }
   if (record.error?.message) {
     throw new StructuredError(record.error.message, { code: record.error.code })
   }
   const message = record.choices?.[0]?.message
   if (!message) return ''
+  const finish = record.choices?.[0]?.finish_reason
+  if (message.refusal || (finish && finish !== 'stop')) throw new StructuredError('整理模型未完整完成回答，未应用改动。')
   // Some providers put structured args on tool_calls; we only use content JSON mode.
   return asText(message.content)
 }
@@ -96,9 +99,12 @@ export async function completeStructuredJson(
     schema: StructuredSchemaName
     signal?: AbortSignal
     responseFormat?: StructuredResponseFormat
+    settings?: StructuredSettings
+    /** Organizer handles parse/quality feedback itself. */
+    parse?: boolean
   },
 ): Promise<{ content: string; parsed: unknown }> {
-  const settings = readAiProviderSettings().structured
+  const settings = options.settings ?? readAiProviderSettings().structured
   if (!structuredConfigured(settings)) {
     throw new StructuredError('请先在设置里配置「结构化模型」API Key（支持 JSON Schema / JSON Object 的 OpenAI 兼容接口）。')
   }
@@ -113,7 +119,7 @@ export async function completeStructuredJson(
   for (const format of formats) {
     const body = {
       model: settings.model,
-      messages: messages.map((message) => ({
+      messages: [{ role: 'system', content: `仅输出 JSON，遵守以下 schema：${JSON.stringify(structuredSchema(options.schema).schema)}` }, ...messages].map((message) => ({
         role: message.role,
         content: message.content,
       })),
@@ -122,14 +128,6 @@ export async function completeStructuredJson(
       temperature: 0.2,
     }
 
-    if (import.meta.env.DEV) {
-      console.debug('[nexora:structured] request', {
-        model: body.model,
-        format,
-        schema: options.schema,
-        messageCount: body.messages.length,
-      })
-    }
 
     let response: Response
     try {
@@ -153,8 +151,9 @@ export async function completeStructuredJson(
       lastError = new StructuredError(message, { status: response.status })
       // Retry with json_object when schema mode is unsupported.
       const schemaRejected = format === 'json_schema' && (
-        response.status === 400
-        || /response_format|json_schema|unknown field|not supported/i.test(message)
+        [400, 422].includes(response.status)
+        && /response_format|json_schema/i.test(message)
+        && /unsupported|not support|not available|unavailable|unknown|invalid|不支持/i.test(message)
       )
       if (schemaRejected) continue
       throw lastError
@@ -172,6 +171,8 @@ export async function completeStructuredJson(
       throw new StructuredError('结构化模型没有返回 content。')
     }
 
+    if (options.parse === false) return { content, parsed: undefined }
+
     let parsed: unknown
     try {
       parsed = JSON.parse(content)
@@ -188,9 +189,6 @@ export async function completeStructuredJson(
       }
     }
 
-    if (import.meta.env.DEV) {
-      console.debug('[nexora:structured] response', { format, preview: content.slice(0, 240) })
-    }
 
     return { content, parsed }
   }

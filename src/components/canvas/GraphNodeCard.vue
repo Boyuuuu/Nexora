@@ -11,6 +11,7 @@ defineProps<{
   dropTarget: boolean
   noteTitle?: string
   linkCount: number
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -43,17 +44,19 @@ const sideLabels = { top: '上', right: '右', bottom: '下', left: '左' }
       <span v-else>未关联 Note</span>
       <span>{{ linkCount }} 条连接</span>
     </div>
-    <button
-      v-for="side in PORT_SIDES"
-      :key="side"
-      type="button"
-      class="port"
-      :class="'port-' + side"
-      :aria-label="node.label + '：从' + sideLabels[side] + '侧拖动连接'"
-      title="拖动到另一个节点以建立连接"
-      tabindex="-1"
-      @pointerdown.stop="emit('connect', $event, side)"
-    />
+    <template v-if="!readonly">
+      <button
+        v-for="side in PORT_SIDES"
+        :key="side"
+        type="button"
+        class="port"
+        :class="'port-' + side"
+        :aria-label="node.label + '：从' + sideLabels[side] + '侧拖动连接'"
+        title="拖动到另一个节点以建立连接"
+        tabindex="-1"
+        @pointerdown.stop="emit('connect', $event, side)"
+      />
+    </template>
   </article>
 </template>
 
@@ -69,9 +72,11 @@ const sideLabels = { top: '上', right: '右', bottom: '下', left: '左' }
   position: relative;
   display: flex;
   flex-direction: column;
-  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+  transform-origin: center;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
 .node:hover, .node:focus-visible {
+  transform: scale(1.02);
   border-color: var(--accent);
   box-shadow: 0 6px 20px rgba(15, 118, 110, 0.12);
   outline: none;
@@ -82,6 +87,7 @@ const sideLabels = { top: '上', right: '右', bottom: '下', left: '左' }
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 .node.dragging {
+  transform: scale(1.03);
   cursor: grabbing;
   border-color: var(--accent);
   box-shadow: 0 12px 28px rgba(15, 118, 110, 0.18);

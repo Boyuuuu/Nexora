@@ -225,6 +225,7 @@ function validateBlockData(block: Block): void {
 export function validateConversation(conversation: Conversation): void {
   requireNonEmptyString(conversation.id, 'conversation.id')
   requireNonEmptyString(conversation.workspaceId, 'conversation.workspaceId')
+  if (conversation.noteId !== undefined) requireNonEmptyString(conversation.noteId, 'conversation.noteId')
   if (conversation.title !== undefined) {
     requireNonEmptyString(conversation.title, 'conversation.title')
   }

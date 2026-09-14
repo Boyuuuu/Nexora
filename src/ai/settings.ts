@@ -14,7 +14,7 @@ export interface ZhidaSettings {
   accessSecret: string
   model: ZhidaModel
   baseUrl: string
-  /** When true, note-edit grounds Plan/Patch with Zhihu site search. */
+  /** When true, chat can reference Zhihu site search results. */
   useSearch: boolean
 }
 
@@ -42,7 +42,7 @@ export function readZhidaSettings(): ZhidaSettings {
       ? (parsed.model as ZhidaModel)
       : defaults.model
     return {
-      accessSecret: typeof parsed.accessSecret === 'string' && parsed.accessSecret.trim()
+      accessSecret: typeof parsed.accessSecret === 'string'
         ? parsed.accessSecret.trim()
         : defaults.accessSecret,
       model,

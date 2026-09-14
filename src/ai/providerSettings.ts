@@ -1,5 +1,7 @@
 import { readZhidaSettings, writeZhidaSettings, type ZhidaSettings } from './settings'
 
+export type AiMode = 'single' | 'dual'
+
 export type StructuredResponseFormat = 'json_schema' | 'json_object'
 
 export interface StructuredSettings {
@@ -17,6 +19,7 @@ export interface StructuredSettings {
 }
 
 export interface AiProviderSettings {
+  mode: AiMode
   zhida: ZhidaSettings
   structured: StructuredSettings
 }
@@ -43,6 +46,7 @@ export function defaultStructuredSettings(): StructuredSettings {
 
 export function defaultAiProviderSettings(): AiProviderSettings {
   return {
+    mode: 'single',
     zhida: readZhidaSettings(),
     structured: defaultStructuredSettings(),
   }
@@ -59,12 +63,13 @@ export function readAiProviderSettings(): AiProviderSettings {
       ...(parsed.structured ?? {}),
     }
     return {
+      mode: parsed.mode === 'dual' ? 'dual' : 'single',
       zhida: {
         ...defaults.zhida,
         ...(parsed.zhida ?? {}),
-        accessSecret: parsed.zhida?.accessSecret?.trim() || defaults.zhida.accessSecret,
-        baseUrl: parsed.zhida?.baseUrl?.trim() || defaults.zhida.baseUrl,
-        model: parsed.zhida?.model ?? defaults.zhida.model,
+        accessSecret: typeof parsed.zhida?.accessSecret === 'string' ? parsed.zhida.accessSecret.trim() : defaults.zhida.accessSecret,
+        baseUrl: typeof parsed.zhida?.baseUrl === 'string' && parsed.zhida.baseUrl.trim() ? parsed.zhida.baseUrl.trim() : defaults.zhida.baseUrl,
+        model: typeof parsed.zhida?.model === 'string' && parsed.zhida.model.trim() ? parsed.zhida.model as ZhidaSettings['model'] : defaults.zhida.model,
         useSearch: typeof parsed.zhida?.useSearch === 'boolean'
           ? parsed.zhida.useSearch
           : defaults.zhida.useSearch,
@@ -88,6 +93,7 @@ export function readAiProviderSettings(): AiProviderSettings {
 export function writeAiProviderSettings(settings: AiProviderSettings): void {
   writeZhidaSettings(settings.zhida)
   localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    mode: settings.mode,
     zhida: {
       accessSecret: settings.zhida.accessSecret.trim(),
       model: settings.zhida.model,

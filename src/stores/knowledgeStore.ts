@@ -1,3 +1,4 @@
+import { hasPendingNoteDrafts } from '../workspace/noteDrafts'
 /**
  * The UI's only view of knowledge data.
  *
@@ -16,13 +17,16 @@
 import { computed, ref } from 'vue'
 import {
   createEmptyGraph,
+  conversationRepository,
+  type Conversation,
+  type ConversationRole,
   noteRepository,
   workspaceRepository,
   type Graph,
   type Note,
   type Workspace,
 } from '../data'
-import { executeOperation, type Operation, type OperationResult } from '../operations'
+import { executeOperation, executeBlockBatch, type BlockOperation, type Operation, type OperationResult } from '../operations'
 
 const workspaces = ref<Workspace[]>([])
 const workspace = ref<Workspace | null>(null)
@@ -105,6 +109,35 @@ export function useKnowledgeStore() {
     blocks: computed(() => note.value?.blocks ?? []),
     busy: computed(() => busy.value),
     lastError: computed(() => lastError.value),
+
+    async refreshNoteForAi(expected: Note): Promise<Note> {
+      const latest = await noteRepository.getById(expected.id)
+      if (!latest) throw new Error('这篇笔记已删除，无法继续整理。')
+      if (hasPendingNoteDrafts(latest) || hasPendingNoteDrafts(expected)) throw new Error('笔记正在编辑，请保存后重试。')
+      // Refresh the original screen only if it has not changed while reading storage.
+      if (note.value?.id === expected.id && JSON.stringify(note.value) === JSON.stringify(expected)) note.value = latest
+      notes.value = notes.value.map((item) => item.id === latest.id ? latest : item)
+      return latest
+    },
+
+    async runBlockBatch(expected: Note, operations: BlockOperation[]): Promise<Note> {
+      const updated = await executeBlockBatch(expected, operations)
+      // Background work must never navigate to its original note/workspace.
+      if (note.value?.id === updated.id) note.value = updated
+      notes.value = notes.value.map((item) => item.id === updated.id ? updated : item)
+      return updated
+    },
+
+    async findNoteConversation(target: Note): Promise<Conversation | undefined> {
+      const conversations = await conversationRepository.getByWorkspaceId(target.workspaceId)
+      return conversations.find((item) => item.noteId === target.id)
+    },
+    async createNoteConversation(target: Note): Promise<Conversation> {
+      return conversationRepository.createConversation({ workspaceId: target.workspaceId, noteId: target.id, title: target.title })
+    },
+    appendChatMessage(id: string, role: ConversationRole, content: string): Promise<Conversation> {
+      return conversationRepository.appendMessage(id, role, content)
+    },
 
     clearError(): void {
       lastError.value = null

@@ -9,7 +9,7 @@ import WorkspaceAddMenu from './WorkspaceAddMenu.vue'
 import { provideSidebarDrag } from '../../composables/useSidebarDrag'
 
 const emit = defineEmits<{ search: []; navigate: [] }>()
-const { store, ui, createWorkspace, createWorkspaceNote, openWorkspaceNote, openWorkspaceCanvas, moveWorkspace, moveWorkspaceNote } = useWorkspaceActions()
+const { store, ui, createWorkspace, createWorkspaceNote, openWorkspaceNote, openWorkspaceCanvas, openWorkspaceNoteCanvas, moveWorkspace, moveWorkspaceNote } = useWorkspaceActions()
 const drag = provideSidebarDrag((item, targetId, after) => item.kind === 'workspace'
   ? moveWorkspace(item.id, targetId, after)
   : moveWorkspaceNote(item.workspaceId, item.id, targetId, after))
@@ -18,15 +18,16 @@ interface TreeState {
   root: boolean
   workspaces: Record<string, boolean>
   notes: Record<string, boolean>
+  graphs: Record<string, boolean>
 }
 
 function readTree(): TreeState {
-  const defaults: TreeState = { root: true, workspaces: {}, notes: {} }
+  const defaults: TreeState = { root: true, workspaces: {}, notes: {}, graphs: {} }
   try {
     const saved = JSON.parse(localStorage.getItem(TREE_KEY) ?? 'null')
     if (!saved || typeof saved !== 'object') return defaults
     if (typeof saved.root === 'boolean') defaults.root = saved.root
-    for (const key of ['workspaces', 'notes'] as const) {
+    for (const key of ['workspaces', 'notes', 'graphs'] as const) {
       if (!saved[key] || typeof saved[key] !== 'object' || Array.isArray(saved[key])) continue
       defaults[key] = Object.fromEntries(Object.entries(saved[key]).filter(([, value]) => typeof value === 'boolean')) as Record<string, boolean>
     }
@@ -54,6 +55,10 @@ function toggleWorkspace(id: string): void {
 
 function toggleNotes(id: string): void {
   tree.notes[id] = !(tree.notes[id] ?? true)
+}
+
+function toggleGraphs(id: string): void {
+  tree.graphs[id] = !(tree.graphs[id] ?? true)
 }
 
 async function navigate(action: () => Promise<boolean>): Promise<void> {
@@ -142,11 +147,14 @@ function forgetWorkspace(id: string): void {
             :workspace="item"
             :expanded="tree.workspaces[item.id] ?? false"
             :notes-expanded="tree.notes[item.id] ?? true"
+            :graphs-expanded="tree.graphs[item.id] ?? true"
             :navigation-busy="navigating || store.busy.value || drag.saving.value"
             @toggle="toggleWorkspace(item.id)"
             @toggle-notes="toggleNotes(item.id)"
+            @toggle-graphs="toggleGraphs(item.id)"
             @open-note="(id) => navigate(() => openWorkspaceNote(item.id, id))"
             @open-canvas="navigate(() => openWorkspaceCanvas(item.id))"
+            @open-note-canvas="(id) => navigate(() => openWorkspaceNoteCanvas(item.id, id))"
             @create-note="onCreateNote(item.id)"
             @deleted="forgetWorkspace(item.id)"
           />

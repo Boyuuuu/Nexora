@@ -73,7 +73,7 @@ export function coerceBlockData(type: BlockType, data: unknown): BlockDataByType
       }
     case 'concept':
     case 'intuition':
-      return { title: title || type, content: asString(record.content) }
+      return { title, content: asString(record.content) }
     default:
       return { title, content: asString(record.content) }
   }
@@ -157,53 +157,66 @@ export function parseEditPlan(raw: unknown, noteBlocks: Block[], mode: EditMode)
   return { mode: plannedMode, summary, targets: limited }
 }
 
-export function parseEditPatches(raw: unknown, noteBlocks: Block[], selected: EditTarget[]): EditPatch[] {
+/** Treat model output as untrusted: reject the whole batch instead of skipping bad rows. */
+export function parseEditPatches(raw: unknown, noteBlocks: Block[], selected?: EditTarget[]): EditPatch[] {
   const record = asRecord(raw)
-  const list = Array.isArray(record?.patches) ? record.patches : Array.isArray(raw) ? raw : null
-  if (!list) throw new Error('结构化模型没有返回可应用的补丁对象。')
-  const known = new Set(noteBlocks.map((block) => block.id))
-  const allowedIds = new Set(
-    selected.filter((item) => item.selected && item.block_id).map((item) => item.block_id as string),
-  )
-  const allowCreate = selected.some((item) => item.selected && item.action === 'create')
+  if (!record || !Array.isArray(record.patches) || Object.keys(record).some((key) => key !== 'patches')) {
+    throw new Error('整理结果不是有效的 patches 对象。')
+  }
+  if (record.patches.length > 32) throw new Error('整理改动超过 32 项，请缩小范围。')
+  const known = new Map(noteBlocks.map((block) => [block.id, block]))
+  const live = new Set(known.keys())
+  const touched = new Set<string>()
+  const remaining = selected?.filter((target) => target.selected).slice()
   const patches: EditPatch[] = []
-
-  for (const item of list) {
+  for (const item of record.patches) {
     const row = asRecord(item)
-    if (!row) continue
+    if (!row || Object.keys(row).some((key) => !['action', 'block_id', 'after_block_id', 'type', 'intent', 'data'].includes(key))) throw new Error('改动包含未知字段。')
     const action = parseAction(row.action)
-    if (!action) continue
-    const blockId = nullableId(row.block_id)
-    if (action === 'create') {
-      if (selected.length && !allowCreate) continue
-    } else if (selected.length && (!blockId || !allowedIds.has(blockId))) {
-      continue
+    if (!action) throw new Error('未知的 Block 操作。')
+    for (const key of ['block_id', 'after_block_id', 'type', 'intent']) {
+      if (row[key] != null && typeof row[key] !== 'string') throw new Error(`无效字段：${key}`)
     }
-    if (action !== 'create' && (!blockId || !known.has(blockId))) continue
-    const typeRaw = nullableId(row.type)
-    const type = typeRaw && isBlockType(typeRaw)
-      ? typeRaw
-      : (blockId ? noteBlocks.find((block) => block.id === blockId)?.type : undefined)
-    const after = row.after_block_id === null
-      ? null
-      : nullableId(row.after_block_id)
-    let data: BlockDataByType[BlockType] | undefined
-    if (action === 'update' || action === 'replace' || action === 'create') {
-      if (!type) continue
-      data = coerceBlockData(type, row.data)
+    const blockId = nullableId(row.block_id)
+    if (action === 'create' && blockId) throw new Error('新增 Block 的 ID 由程序生成。')
+    if (action !== 'create' && (!blockId || !live.has(blockId) || touched.has(blockId))) throw new Error('目标 Block 不存在或被重复修改。')
+    if (remaining) {
+      const match = remaining.findIndex((target) => target.action === action && target.block_id === blockId)
+      if (match < 0) throw new Error('改动不符合已选择的操作。')
+      remaining.splice(match, 1)
+    }
+    const existing = blockId ? known.get(blockId) : undefined
+    const type = row.type == null ? existing?.type : row.type
+    if (type !== undefined && !isBlockType(type)) throw new Error('未知的 Block 类型。')
+    if (action === 'update' && type !== existing?.type) throw new Error('转换类型必须使用 replace。')
+    const after = row.after_block_id === null ? null : nullableId(row.after_block_id)
+    if (action === 'create' || action === 'move') {
+      if (after && (!live.has(after) || after === blockId)) throw new Error('目标位置无效。')
+      if (action === 'move' && after === undefined) throw new Error('移动缺少目标位置。')
+    } else if (after !== undefined && after !== null) throw new Error('此操作不支持移动位置。')
+    let data: EditPatch['data']
+    if (action === 'create' || action === 'update' || action === 'replace') {
+      const source = asRecord(row.data)
+      if (!source || !type) throw new Error('改动缺少 Block 内容。')
+      const fields = BLOCK_DATA_FIELDS[type] as readonly string[]
+      const allFields = new Set<string>(Object.values(BLOCK_DATA_FIELDS).flat())
+      for (const [key, value] of Object.entries(source)) {
+        if (!allFields.has(key)) throw new Error(`未知内容字段：${key}`)
+        if (!fields.includes(key) && value !== '' && !(Array.isArray(value) && !value.length)) throw new Error(`${type} 不支持字段 ${key}`)
+        if (key === 'items' ? !Array.isArray(value) || value.some((v) => typeof v !== 'string') : typeof value !== 'string') throw new Error(`无效内容字段：${key}`)
+      }
+      const primary = type === 'math' ? 'latex' : type === 'code' ? 'code' : type === 'exploration' ? 'items' : 'content'
+      const body = source[primary]
+      if (primary === 'items' ? !Array.isArray(body) || !body.length || body.some((v) => !v.trim()) : typeof body !== 'string' || !body.trim()) throw new Error('不能用空内容覆盖 Block。')
+      const merged: Record<string, unknown> = action === 'update' ? { ...existing!.data } : {}
+      for (const field of fields) if (source[field] !== undefined) merged[field] = source[field]
+      data = coerceBlockData(type, merged)
       const invalid = validateTypedData(type, data)
       if (invalid) throw new Error(invalid)
-    }
-    patches.push({
-      action,
-      ...(blockId ? { block_id: blockId } : {}),
-      ...(after !== undefined ? { after_block_id: after } : {}),
-      ...(type ? { type } : {}),
-      ...(data ? { data } : {}),
-      intent: asString(row.intent),
-    })
+    } else if (row.data != null) throw new Error('删除和移动不应包含内容。')
+    patches.push({ action, ...(blockId ? { block_id: blockId } : {}), ...(after !== undefined ? { after_block_id: after } : {}), ...(type ? { type } : {}), ...(data ? { data } : {}), intent: asString(row.intent) })
+    if (blockId) touched.add(blockId)
+    if (action === 'delete') live.delete(blockId!)
   }
-
-  if (!patches.length) throw new Error('没有可应用的改动。')
-  return patches.slice(0, Math.max(selected.length, MAX_EDIT_BLOCKS))
+  return patches
 }

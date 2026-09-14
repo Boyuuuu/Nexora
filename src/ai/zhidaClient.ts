@@ -1,4 +1,4 @@
-import { readZhidaSettings, type ZhidaModel } from './settings'
+import { readZhidaSettings, type ZhidaModel, type ZhidaSettings } from './settings'
 
 export class ZhidaError extends Error {
   override name = 'ZhidaError'
@@ -29,7 +29,9 @@ interface ChatRequest {
 }
 
 function endpoint(baseUrl: string): string {
-  return `${baseUrl.replace(/\/$/, '')}/v1/chat/completions`
+  const root = baseUrl.replace(/\/$/, '')
+  if (root.endsWith('/chat/completions')) return root
+  return `${root}${root.endsWith('/v1') ? '' : '/v1'}/chat/completions`
 }
 
 function headers(secret: string): HeadersInit {
@@ -89,8 +91,8 @@ export function toZhidaMessages(messages: ChatMessage[]): ChatMessage[] {
   return [{ role: 'user', content: rules }, ...rest]
 }
 
-function readSettings() {
-  const settings = readZhidaSettings()
+function readSettings(provided?: ZhidaSettings) {
+  const settings = provided ?? readZhidaSettings()
   if (!settings.accessSecret) {
     throw new ZhidaError('请先在设置里填写 Access Secret。')
   }
@@ -117,14 +119,16 @@ function asText(value: unknown): string {
 function readAssistantMessage(parsed: unknown): { reasoning: string; content: string } {
   const record = parsed as {
     error?: { message?: string; code?: string }
-    choices?: Array<{ message?: Record<string, unknown> }>
-    data?: { choices?: Array<{ message?: Record<string, unknown> }> }
+    choices?: Array<{ finish_reason?: string; message?: Record<string, unknown> }>
+    data?: { choices?: Array<{ finish_reason?: string; message?: Record<string, unknown> }> }
   }
   if (record.error?.message) {
     throw new ZhidaError(record.error.message, { code: record.error.code })
   }
   const message = record.choices?.[0]?.message ?? record.data?.choices?.[0]?.message
   if (!message) return { reasoning: '', content: '' }
+  const finish = (record.choices?.[0] ?? record.data?.choices?.[0])?.finish_reason
+  if (message.refusal || (finish && finish !== 'stop')) throw new ZhidaError('模型未完整完成回答。')
   return {
     reasoning: asText(message.reasoning_content ?? message.reasoning),
     content: asText(message.content ?? message.answer ?? message.text ?? message.output),
@@ -133,18 +137,15 @@ function readAssistantMessage(parsed: unknown): { reasoning: string; content: st
 
 export async function completeZhidaChat(
   messages: ChatMessage[],
-  options?: { model?: ZhidaModel; signal?: AbortSignal },
+  options?: { model?: ZhidaModel; signal?: AbortSignal; settings?: ZhidaSettings },
 ): Promise<{ reasoning: string; content: string }> {
-  const settings = readSettings()
+  const settings = readSettings(options?.settings)
   const body: ChatRequest = {
     model: options?.model ?? settings.model,
     messages: toZhidaMessages(messages),
     stream: false,
   }
 
-  if (import.meta.env.DEV) {
-    console.debug('[nexora:zhida] request', { model: body.model, messages: body.messages })
-  }
 
   const response = await fetch(endpoint(settings.baseUrl), {
     method: 'POST',
@@ -166,12 +167,6 @@ export async function completeZhidaChat(
   }
 
   const result = readAssistantMessage(parsed)
-  if (import.meta.env.DEV) {
-    console.debug('[nexora:zhida] response', {
-      contentPreview: result.content.slice(0, 300),
-      reasoningPreview: result.reasoning.slice(0, 300),
-    })
-  }
   return result
 }
 
@@ -179,9 +174,9 @@ export async function streamZhidaChat(
   messages: ChatMessage[],
   handlers: ChatStreamHandlers,
   signal?: AbortSignal,
-  options?: { model?: ZhidaModel },
+  options?: { model?: ZhidaModel; settings?: ZhidaSettings },
 ): Promise<{ reasoning: string; content: string }> {
-  const settings = readSettings()
+  const settings = readSettings(options?.settings)
   const body: ChatRequest = {
     model: options?.model ?? settings.model,
     messages: toZhidaMessages(messages),
@@ -206,6 +201,7 @@ export async function streamZhidaChat(
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
+  let completed = false
   let buffer = ''
   let reasoning = ''
   let content = ''
@@ -217,13 +213,13 @@ export async function streamZhidaChat(
       .map((line) => line.slice(5).trimStart())
     if (!dataLines.length) return 'continue'
     const payload = dataLines.join('\n')
-    if (payload === '[DONE]') return 'done'
+    if (payload === '[DONE]') { completed = true; return 'done' }
 
     let parsed: unknown
     try {
       parsed = JSON.parse(payload)
     } catch {
-      return 'continue'
+      throw new ZhidaError('聊天响应格式异常，未整理到笔记。')
     }
     if (!parsed || typeof parsed !== 'object') return 'continue'
     const record = parsed as {
@@ -239,7 +235,8 @@ export async function streamZhidaChat(
     }
     const choice = record.choices?.[0]
     if (!choice) return 'continue'
-    if (choice.finish_reason === 'error') {
+    if (choice.finish_reason === 'stop') completed = true
+    if (choice.finish_reason && choice.finish_reason !== 'stop') {
       throw new ZhidaError(record.error?.message ?? '模型在生成中途失败。')
     }
     const delta = choice.delta ?? choice.message ?? {}
@@ -254,6 +251,7 @@ export async function streamZhidaChat(
     return 'continue'
   }
 
+  try {
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -265,6 +263,7 @@ export async function streamZhidaChat(
       const rawEvent = buffer.slice(0, separator)
       buffer = buffer.slice(separator + 2)
       if (consumeEvent(rawEvent) === 'done') {
+        if (!content.trim()) throw new ZhidaError('模型没有返回回答正文。')
         return { reasoning, content }
       }
     }
@@ -272,5 +271,10 @@ export async function streamZhidaChat(
 
   // Flush a trailing event that never got a final blank line.
   if (buffer.trim()) consumeEvent(buffer.trim())
+  if (!completed || !content.trim()) throw new ZhidaError('回答未完整接收，未整理到笔记，请重新发送。')
   return { reasoning, content }
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ name: 'sidebar' | 'search' | 'close' | 'note' | 'chat' | 'plus' | 'more' | 'chevron' | 'folder' | 'canvas' | 'download' | 'upload' | 'reset' | 'fit' | 'undo' | 'trash' | 'connection' }>()
+defineProps<{ name: 'sidebar' | 'search' | 'close' | 'note' | 'chat' | 'plus' | 'more' | 'grip' | 'chevron' | 'folder' | 'canvas' | 'download' | 'upload' | 'reset' | 'fit' | 'undo' | 'trash' | 'connection' }>()
 </script>
 
 <template>
@@ -34,6 +34,9 @@ defineProps<{ name: 'sidebar' | 'search' | 'close' | 'note' | 'chat' | 'plus' | 
     <path v-else-if="name === 'plus'" d="M12 5v14M5 12h14" />
     <path v-else-if="name === 'download'" d="M12 3v12m-5-5 5 5 5-5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
     <path v-else-if="name === 'upload'" d="M12 15V3m-5 5 5-5 5 5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+    <template v-else-if="name === 'grip'">
+      <circle v-for="(point, index) in [[9, 5], [15, 5], [9, 12], [15, 12], [9, 19], [15, 19]]" :key="index" :cx="point[0]" :cy="point[1]" r="1" fill="currentColor" />
+    </template>
     <template v-else-if="name === 'more'">
       <circle cx="5" cy="12" r="1" fill="currentColor" />
       <circle cx="12" cy="12" r="1" fill="currentColor" />

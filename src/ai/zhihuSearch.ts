@@ -1,4 +1,4 @@
-import { readZhidaSettings } from './settings'
+import { readZhidaSettings, type ZhidaSettings } from './settings'
 import { ZhidaError } from './zhidaClient'
 
 export interface ZhihuSearchComment {
@@ -35,6 +35,7 @@ export interface ZhihuSearchOptions {
   /** e.g. VoteUpCount:desc:(10,) — see Zhihu OpenAPI docs */
   sortBy?: string
   signal?: AbortSignal
+    settings?: ZhidaSettings
 }
 
 interface ApiItem {
@@ -114,7 +115,7 @@ export async function searchZhihuContent(
   const q = query.replace(/\s+/g, ' ').trim()
   if (!q) throw new ZhidaError('搜索关键词不能为空。', { code: '10001' })
 
-  const settings = readZhidaSettings()
+  const settings = options?.settings ?? readZhidaSettings()
   if (!settings.accessSecret) {
     throw new ZhidaError('请先在设置里填写知乎 Access Secret。')
   }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useWorkspaceActions } from '../../composables/useWorkspaceActions'
 import { useAiEditor } from '../../composables/useAiEditor'
 import { useAiSession } from '../../ai/session'
@@ -8,15 +8,155 @@ import AddBlockButton from './AddBlockButton.vue'
 import BlockCard from './BlockCard.vue'
 import NoteHeader from './NoteHeader.vue'
 import QuoteToolbar from './QuoteToolbar.vue'
+import AppIcon from '../ui/AppIcon.vue'
+import { blockMoveAnchor, blockPlacementAt, type BlockPlacement } from '../../workspace/blockReorder'
 
-const { store, ui, dropBlockBefore } = useWorkspaceActions()
+const { store, ui, reorderBlock } = useWorkspaceActions()
 const editor = useAiEditor()
 const session = useAiSession()
 
-async function onDropBefore(blockId: string, event: DragEvent): Promise<void> {
-  const dragged = event.dataTransfer?.getData('text/nexora-block')
-  if (dragged) await dropBlockBefore(dragged, blockId)
+const root = ref<HTMLElement | null>(null)
+const draggedId = ref<string | null>(null)
+const dropTarget = ref<BlockPlacement | null>(null)
+const savingOrder = ref(false)
+const reorderDisabled = computed(() => savingOrder.value || editor.phase.value === 'applying')
+const dragPoint = ref({ x: 0, y: 0 })
+const draggedTitle = computed(() => store.blocks.value.find((block) => block.id === draggedId.value)?.data.title || 'Block')
+let sourceBlockId: string | null = null
+let pointerId: number | null = null
+let handle: HTMLElement | null = null
+let startPoint = { x: 0, y: 0 }
+let originNoteId: string | null = null
+let scrollFrame = 0
+let pointer: { x: number; y: number } | null = null
+
+function endDrag(): void {
+  window.removeEventListener('pointermove', onPointerMove)
+  window.removeEventListener('pointerup', onPointerUp)
+  window.removeEventListener('pointercancel', endDrag)
+  window.removeEventListener('keydown', onDragKey)
+  window.removeEventListener('blur', endDrag)
+  if (pointerId !== null && handle?.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+  pointerId = null
+  handle = null
+  sourceBlockId = null
+  cancelAnimationFrame(scrollFrame)
+  scrollFrame = 0
+  pointer = null
+  draggedId.value = null
+  dropTarget.value = null
+  originNoteId = null
 }
+
+function updateDropTarget(x: number, y: number): void {
+  const list = root.value, id = draggedId.value
+  if (!list || !id || store.note.value?.id !== originNoteId) return
+  const bounds = list.getBoundingClientRect()
+  const main = list.closest('main')?.getBoundingClientRect()
+  if (x < bounds.left || x > bounds.right || (main && (y < main.top || y > main.bottom))) {
+    dropTarget.value = null
+    return
+  }
+  const rows = [...list.querySelectorAll<HTMLElement>('[data-block-id]')].map((el) => {
+    const rect = el.getBoundingClientRect()
+    return { id: el.dataset.blockId!, top: rect.top, bottom: rect.bottom }
+  })
+  const target = blockPlacementAt(rows, id, y)
+  dropTarget.value = target && blockMoveAnchor(rows.map((row) => row.id), id, target) !== undefined ? target : null
+}
+
+function autoScroll(): void {
+  if (!draggedId.value) return
+  const main = root.value?.closest('main')
+  if (main && pointer) {
+    const rect = main.getBoundingClientRect()
+    if (pointer.x >= rect.left && pointer.x <= rect.right && pointer.y >= rect.top && pointer.y <= rect.bottom) {
+      const edge = Math.min(64, rect.height / 4)
+      const speed = pointer.y < rect.top + edge ? -12 * (1 - (pointer.y - rect.top) / edge)
+        : pointer.y > rect.bottom - edge ? 12 * (1 - (rect.bottom - pointer.y) / edge) : 0
+      if (speed) {
+        main.scrollBy({ top: speed, behavior: 'instant' })
+        updateDropTarget(pointer.x, pointer.y)
+      }
+    }
+  }
+  scrollFrame = requestAnimationFrame(autoScroll)
+}
+
+function startDrag(id: string, event: PointerEvent): void {
+  if (event.button !== 0 || reorderDisabled.value || !store.note.value) return
+  endDrag()
+  event.preventDefault()
+  handle = event.currentTarget as HTMLElement
+  handle.focus({ preventScroll: true })
+  handle.setPointerCapture(event.pointerId)
+  pointerId = event.pointerId
+  originNoteId = store.note.value.id
+  sourceBlockId = id
+  startPoint = { x: event.clientX, y: event.clientY }
+  window.addEventListener('pointermove', onPointerMove, { passive: false })
+  window.addEventListener('pointerup', onPointerUp)
+  window.addEventListener('pointercancel', endDrag)
+  window.addEventListener('keydown', onDragKey)
+  window.addEventListener('blur', endDrag)
+}
+
+function onPointerMove(event: PointerEvent): void {
+  if (event.pointerId !== pointerId || !sourceBlockId) return
+  if (!draggedId.value) {
+    if (Math.hypot(event.clientX - startPoint.x, event.clientY - startPoint.y) < 5) return
+    draggedId.value = sourceBlockId
+    scrollFrame = requestAnimationFrame(autoScroll)
+  }
+  event.preventDefault()
+  pointer = { x: event.clientX, y: event.clientY }
+  dragPoint.value = { x: Math.min(event.clientX + 14, window.innerWidth - 260), y: Math.min(event.clientY + 14, window.innerHeight - 50) }
+  updateDropTarget(event.clientX, event.clientY)
+}
+
+function onDragKey(event: KeyboardEvent): void {
+  if (event.key === 'Escape') { event.preventDefault(); endDrag() }
+}
+
+async function saveMove(id: string, target: BlockPlacement, noteId: string): Promise<void> {
+  if (reorderDisabled.value) return
+  savingOrder.value = true
+  try { await reorderBlock(id, target, noteId) }
+  finally { savingOrder.value = false }
+}
+
+async function onPointerUp(event: PointerEvent): Promise<void> {
+  if (event.pointerId !== pointerId) return
+  if (draggedId.value) updateDropTarget(event.clientX, event.clientY)
+  const id = draggedId.value, target = dropTarget.value, noteId = originNoteId
+  endDrag()
+  if (id && target && noteId) await saveMove(id, target, noteId)
+}
+
+async function moveByKeyboard(id: string, direction: 'up' | 'down'): Promise<void> {
+  if (reorderDisabled.value || sourceBlockId) return
+  const index = store.blocks.value.findIndex((block) => block.id === id)
+  const neighbor = store.blocks.value[index + (direction === 'up' ? -1 : 1)]
+  if (index < 0 || !neighbor || !store.note.value) return
+  const noteId = store.note.value.id
+  const focusedHandle = document.activeElement
+  await saveMove(id, { targetId: neighbor.id, after: direction === 'down' }, noteId)
+  await nextTick()
+  // Moving a DOM node can drop keyboard focus; keep repeated arrow presses on this block.
+  if (store.note.value?.id !== noteId || (document.activeElement !== document.body && document.activeElement !== focusedHandle)) return
+  const row = [...(root.value?.querySelectorAll<HTMLElement>('[data-block-id]') ?? [])].find((el) => el.dataset.blockId === id)
+  row?.querySelector<HTMLButtonElement>('.grip')?.focus({ preventScroll: true })
+}
+
+watch(() => store.note.value?.id, endDrag)
+onBeforeUnmount(endDrag)
+watch(() => session.focusedPreviewId.value, async (id) => {
+  if (!id) return
+  await nextTick()
+  const block = [...(root.value?.querySelectorAll<HTMLElement>('[data-block-id]') ?? [])].find((el) => el.dataset.blockId === id)
+  block?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
+  session.focusedPreviewId.value = null
+})
 
 const lastId = computed(() => store.blocks.value.at(-1)?.id ?? null)
 
@@ -26,34 +166,40 @@ function ghostLabel(type?: string): string {
 </script>
 
 <template>
-  <section class="note-view">
+  <section ref="root" class="note-view">
     <QuoteToolbar />
     <template v-if="store.note.value">
       <NoteHeader />
-      <div v-if="store.blocks.value.length || session.ghostAfter(null).length" class="blocks">
+      <div v-if="draggedId" class="drag-preview" :style="{ left: `${dragPoint.x}px`, top: `${dragPoint.y}px` }" aria-hidden="true"><AppIcon name="grip" /><span>{{ draggedTitle }}</span></div>
+      <p v-if="draggedId" class="reorder-hint" role="status">拖到目标位置后松开 · 按 Esc 取消</p>
+      <div v-if="store.blocks.value.length || editor.ghostAfter(null).length" class="blocks">
         <article
-          v-for="(ghost, index) in session.ghostAfter(null)"
+          v-for="(ghost, index) in editor.ghostAfter(null)"
           :key="`ghost-head-${index}`"
           class="ghost"
         >
-          {{ previewLabel(ghost.action) }} · {{ ghostLabel(ghost.type) }}
+          {{ previewLabel(ghost.action) }} · {{ ghost.data?.title || ghostLabel(ghost.type) }}（待应用）
         </article>
         <template v-for="block in store.blocks.value" :key="block.id">
           <BlockCard
             :block="block"
             :active="ui.selectedBlockId.value === block.id"
-            :preview="session.patchFor(block.id)?.action"
+            :preview="editor.patchFor(block.id)?.action"
+            :dragging="draggedId === block.id"
+            :drop-side="dropTarget?.targetId === block.id ? (dropTarget.after ? 'after' : 'before') : undefined"
+            :reorder-disabled="reorderDisabled"
             :can-undo="editor.lastTask.value?.noteId === store.note.value.id && editor.lastTask.value.changes.some((item) => item.blockId === block.id)"
             @activate="ui.selectBlock(block.id)"
-            @drop-before="onDropBefore(block.id, $event)"
+            @drag-start="startDrag(block.id, $event)"
+            @move="moveByKeyboard(block.id, $event)"
             @undo-ai="editor.undoBlock(block.id)"
           />
           <article
-            v-for="(ghost, index) in session.ghostAfter(block.id, { last: block.id === lastId })"
+            v-for="(ghost, index) in editor.ghostAfter(block.id, { last: block.id === lastId })"
             :key="`ghost-${block.id}-${index}`"
             class="ghost"
           >
-            {{ previewLabel(ghost.action) }} · {{ ghostLabel(ghost.type) }}
+            {{ previewLabel(ghost.action) }} · {{ ghost.data?.title || ghostLabel(ghost.type) }}（待应用）
           </article>
         </template>
       </div>
@@ -82,6 +228,9 @@ function ghostLabel(type?: string): string {
   flex-direction: column;
   gap: 0.35rem;
 }
+.drag-preview { --icon-size: 18px; position: fixed; z-index: 50; display: flex; gap: 8px; align-items: center; max-width: 240px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: var(--control-radius); color: var(--accent); background: var(--panel); box-shadow: 0 8px 24px #0002; pointer-events: none; font-size: 13px; }
+.drag-preview span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.reorder-hint { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 45; width: fit-content; margin: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--panel); color: var(--accent); font-size: 12px; pointer-events: none; }
 
 .ghost {
   margin: 0.15rem 0;

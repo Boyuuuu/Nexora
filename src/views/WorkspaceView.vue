@@ -32,7 +32,9 @@ onMounted(async () => {
   <WorkspaceLayout>
     <div v-if="!ready" class="booting">Opening your knowledge space…</div>
     <NoteView v-else-if="ui.mode.value === 'note'" />
-    <KnowledgeCanvas v-else-if="ui.mode.value === 'canvas'" :key="store.workspace.value?.id" />
+    <Transition v-else-if="ui.mode.value === 'canvas'" name="canvas-scope" mode="out-in">
+      <KnowledgeCanvas :key="`${store.workspace.value?.id}:${ui.canvasScope.value.type}:${ui.canvasScope.value.type === 'note' ? ui.canvasScope.value.noteId : ''}`" :scope="ui.canvasScope.value" />
+    </Transition>
     <ExploreView v-else />
   </WorkspaceLayout>
 </template>
@@ -43,5 +45,13 @@ onMounted(async () => {
   display: grid;
   place-items: center;
   color: var(--muted);
+}
+
+.canvas-scope-enter-active,
+.canvas-scope-leave-active { transition: opacity 180ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+.canvas-scope-enter-from { opacity: 0; transform: scale(0.985) translateY(8px); }
+.canvas-scope-leave-to { opacity: 0; transform: scale(1.015) translateY(-8px); }
+@media (prefers-reduced-motion: reduce) {
+  .canvas-scope-enter-active, .canvas-scope-leave-active { transition: none; }
 }
 </style>

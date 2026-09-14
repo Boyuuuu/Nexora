@@ -37,3 +37,5 @@ export type {
   UpdateBlockOperation,
   UpdateNodeOperation,
 } from './types'
+
+export { executeBlockBatch, previewBlockBatch } from './blockBatch'

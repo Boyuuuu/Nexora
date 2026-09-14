@@ -1,87 +1,45 @@
-# Nexora AI Skill：`note-edit`（单篇笔记编辑）
+# AI 对话与笔记整理
 
-> 纯前端静态包。  
-> **v3：模型灵活决策 + 结构化通道强制合法 JSON。** 直答不再承担 Plan/Patch。
+## 用户流程
 
----
+右侧聊天支持「单模型 / 双模型」。勾选「回答后生成笔记预览」后，每轮先保存聊天回答，再生成笔记建议。只有用户点击「应用 N 项改动」才写入 Blocks。
 
-## 1. 架构
+预览按 Note 隔离，显示操作类型、标题、位置、整理原因和完整的原内容／修改后内容。段落按行对齐，变化部分分别使用红色和绿色。正文标注待修改、待删除以及新增位置；「定位原文」滚动到原 Block。
 
-```
-用户指令 + 引用
-        ↓
- 结构化模型（OpenAI 兼容）
-   response_format: json_schema（失败则降级 json_object）
-        ↓
- parseEditPlan / parseEditPatches（语义校验：真实 block_id、type、data）
-        ↓
- 用户勾选 / 预览 → Operations → IndexedDB
-```
+有待确认预览时，这篇 Note 不能开始下一轮对话。可以应用、重新整理或放弃，也可以切换到其他 Note。重新整理使用已保存的回答、原问题和最近对话，不重新请求聊天回答。
 
-| 通道 | 用途 |
-|------|------|
-| **结构化模型** | Plan / Patch（强制 JSON） |
-| 知乎站内搜索 | 编辑前取景：把相关问答/文章摘要注入上下文（可关） |
-| 知乎直答 | 可选保留（流式思考 / 自由问答，当前主链路不依赖） |
+## 两种模式
 
----
+- 单模型：所选知乎模型先回答，再通过普通文本响应生成改动 JSON。
+- 双模型：知乎负责回答，配置的第二个 OpenAI 兼容模型负责整理。
+- 第二个模型优先按配置请求 JSON Schema。服务明确拒绝该格式时，只回退一次 JSON Object；这不意味着服务保证符合应用的字段约束。
+- 两种模式均经过相同的内容检查、改动验证、预览和原子保存流程。
 
-## 2. 配置
+## 整理质量
 
-设置面板 →「结构化模型」：
+`src/ai/organizeAnswer.ts` 把当前问题、回答、最近 20 条对话、Note 的全部 Blocks、选择和引用交给整理模型。
 
-- API Key
-- 模型 ID（如 `gpt-4o-mini`）
-- 接口地址（开发默认 `/openai`）
-- 强制格式：`json_schema`（推荐）或 `json_object`
+整理要求：一个块一个知识主题，独立的具体标题，提炼结论、原因、适用条件和必要例子；通常生成 1–5 块。同主题优先更新已有内容，保留已有独特信息。只有用户明确要求删除、合并去重或重写时才建议删除。没有新知识时可以返回空改动。
 
-环境变量（可选）：
+`src/ai/organizedContent.ts` 检查标题、正文长度、重复内容及大段复制，并清理普通正文中的 Markdown 标题、加粗、引用和分隔线。来源链接保留为可读文本及 URL。代码、缩进、运算符和 LaTeX 不经过正文清理；围栏或公式外框应由模型纠正。表格不能靠简单删符号转换，会要求重写成对比句。
 
-- `VITE_STRUCTURED_API_KEY`
-- `VITE_STRUCTURED_MODEL`
-- `VITE_STRUCTURED_BASE_URL`
-- `VITE_OPENAI_PROXY_TARGET`（Vite 把 `/openai` 代理到该 origin，默认 `https://api.openai.com`）
+收到无效 JSON、非法改动或未达标内容时，携带具体反馈重新生成一次。网络、鉴权等错误直接报告。两次结果均失败则保留聊天并提供重试，**绝不自动复制回答原文到 Block**。
 
-换 DeepSeek / Moonshot 等：把 baseUrl / proxy target 指到对应 OpenAI 兼容网关即可。
+标题、长度和复制检测属于规则检查，不能保证摘要事实正确或语义完整，因此保留预览供用户判断。
 
----
+## 保存与冲突保护
 
-## 3. Schema
+- `protocol.ts` 校验真实 Block ID、字段、类型、非空正文、操作和插入位置，每批最多 32 项；不能对同一已有 Block 重复操作。
+- `patchesToOperations` 在预览时生成固定的新 Block ID、操作数组与撤销快照；同一锚点的新增块保持建议顺序。
+- `previewBlockBatch` 在内存中模拟整批操作，预览使用模拟结果；应用使用同一组操作。模拟入口会将 Note 和操作载荷一并复制成普通 JSON 数据，防止预览状态中的 Vue 代理进入 IndexedDB。
+- `executeBlockBatch` 再次验证全部操作，仓库比较原 Note 的版本与 Blocks，匹配后一次性保存。任何冲突或验证错误都不会部分写入。保存错误固定显示在操作区上方；普通存储错误保留预览供再次应用，只有版本或删除冲突才要求重新整理。
+- 存在未保存的编辑缓冲时禁止应用。预览后手动修改正文会使预览失效；重新整理会读取最新笔记。切换 Note 不会让后台任务导航回原笔记。
+- 每篇笔记保留本次会话最近一次已应用任务的撤销记录。撤销同样检查版本，避免覆盖后续手动编辑。
 
-源码：[`src/ai/schemas.ts`](../src/ai/schemas.ts)
+聊天与笔记保存在本浏览器 IndexedDB；模型配置保存在本地设置中。待确认预览和撤销快照仅保存在内存，刷新页面会清除，聊天记录保留。
 
-- `edit_plan` → `mode` / `summary` / `targets[]`
-- `edit_patch` → `patches[]`（含统一 `data` 字段；用不到的填空串）
+## 验证
 
-应用层仍用 [`parseEditPlan`](../src/ai/protocol.ts) / `parseEditPatches` 校验真实 `block_id` 与类型载荷。
+`npm run test:ai-editing` 使用遵循 IndexedDB structured-clone 规则的隔离事务存储和模拟 API，覆盖两种模式、质量重试、格式回退、预览不写入、跨 Note 隔离、应用／放弃／停止／撤销、过期预览和整批保存。不会调用真实模型或读取真实笔记。
 
-### 知乎搜索取景
-
-- 客户端：[`src/ai/zhihuSearch.ts`](../src/ai/zhihuSearch.ts)
-- `GET /api/v1/content/zhihu_search?Query=&Count=`（开发经 `/zhida` 代理）
-- 设置项「编辑时启用知乎站内搜索」；失败不阻断编辑
-- 结果以短摘要进入 prompt，并在右侧面板展示链接
-
----
-
-## 4. Skill 文件
-
-```
-src/ai/
-  schemas.ts
-  structuredClient.ts
-  providerSettings.ts
-  skills/note-edit/prompts.ts   # plan / patch 指导语（形状由 schema 强制）
-```
-
-版本：`note-edit@3.0.0`
-
----
-
-## 5. 与数据层对齐
-
-- Workspace 手工创建；Skill 不碰 Workspace CRUD  
-- 落盘仍是 Operations（`create/update/replace/delete/move_block`）  
-- 本 Skill 不写 Graph  
-
-详见 [data-layer.md](./data-layer.md)。
+`node scripts/preview-ai-fixture.mjs` 启动 `http://localhost:5174/` 的独立视觉测试页，使用独立数据库 nexora-ai-preview-fixture-db 的真实 IndexedDB 和模拟回答。刷新测试页保留已保存的笔记，可检查应用后持久化。展开「学习方法 · 测试数据」，打开「理解梯度下降」，发送一条纠错、补例子和合并重复定义的请求，即可检查修改／新增／删除三类预览。该脚本不进入产品构建。

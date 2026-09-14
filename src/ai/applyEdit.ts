@@ -1,5 +1,5 @@
 import { createId, type Block, type BlockType, type Note } from '../data'
-import type { BlockInput, Operation } from '../operations'
+import type { BlockInput, BlockOperation } from '../operations'
 import type { EditPatch } from './protocol'
 
 export interface AppliedChange {
@@ -14,6 +14,7 @@ export interface EditTask {
   workspaceId: string
   noteId: string
   changes: AppliedChange[]
+  afterNote: Note
 }
 
 function toInput(block: Block): BlockInput {
@@ -22,7 +23,7 @@ function toInput(block: Block): BlockInput {
     type: block.type,
     data: block.data,
     metadata: {
-      source: block.metadata.source ?? 'ai',
+      source: block.metadata.source,
       tags: block.metadata.tags,
     },
   } as BlockInput
@@ -41,9 +42,10 @@ export function patchesToOperations(
   workspaceId: string,
   note: Note,
   patches: EditPatch[],
-): { operations: Operation[]; snapshots: AppliedChange[] } {
-  const operations: Operation[] = []
+): { operations: BlockOperation[]; snapshots: AppliedChange[] } {
+  const operations: BlockOperation[] = []
   const snapshots: AppliedChange[] = []
+  const insertionTails = new Map<string | null, string>()
   const live = note.blocks.map((block) => block.id)
 
   function currentAnchor(id: string): string | null {
@@ -55,16 +57,19 @@ export function patchesToOperations(
   for (const patch of patches) {
     if (patch.action === 'create') {
       const id = createId('block')
+      const requestedAnchor = patch.after_block_id
+      const anchor = requestedAnchor === undefined ? undefined : insertionTails.get(requestedAnchor) ?? requestedAnchor
+      if (requestedAnchor !== undefined) insertionTails.set(requestedAnchor, id)
       if (!patch.type || !patch.data) continue
       operations.push({
         operation: 'create_block',
         workspace_id: workspaceId,
         note_id: note.id,
         block: inputFromPatch(id, patch.type, patch.data),
-        after_block_id: patch.after_block_id === undefined ? undefined : patch.after_block_id,
+        after_block_id: anchor,
       })
       snapshots.push({ action: 'create', blockId: id, before: null, afterAnchor: patch.after_block_id ?? null })
-      const after = patch.after_block_id
+      const after = anchor
       const at = after ? live.indexOf(after) + 1 : 0
       live.splice(after === undefined ? live.length : at, 0, id)
       continue
@@ -132,8 +137,8 @@ export function patchesToOperations(
   return { operations, snapshots }
 }
 
-export function undoOperations(task: EditTask): Operation[] {
-  const operations: Operation[] = []
+export function undoOperations(task: EditTask): BlockOperation[] {
+  const operations: BlockOperation[] = []
   for (const change of [...task.changes].reverse()) {
     if (change.action === 'create') {
       operations.push({
@@ -177,7 +182,7 @@ export function undoOperations(task: EditTask): Operation[] {
   return operations
 }
 
-export function undoOneBlock(task: EditTask, blockId: string): { operations: Operation[]; remaining: AppliedChange[] } {
+export function undoOneBlock(task: EditTask, blockId: string): { operations: BlockOperation[]; remaining: AppliedChange[] } {
   const index = [...task.changes].map((change, i) => ({ change, i })).reverse().find((item) => item.change.blockId === blockId)?.i
   if (index === undefined) return { operations: [], remaining: task.changes }
   const subset: EditTask = { ...task, changes: [task.changes[index]!] }

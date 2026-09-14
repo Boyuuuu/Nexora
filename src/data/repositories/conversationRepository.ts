@@ -20,6 +20,7 @@ import {
 
 export interface CreateConversationInput {
   workspaceId: string
+  noteId?: string
   title?: string
   messages?: ConversationMessage[]
 }
@@ -33,6 +34,7 @@ export function buildConversation(input: CreateConversationInput): Conversation 
   return {
     id: createId('conv'),
     workspaceId: input.workspaceId,
+    ...(input.noteId ? { noteId: input.noteId } : {}),
     ...(input.title === undefined ? {} : { title: input.title }),
     messages: input.messages ?? [],
     metadata: { createdAt: timestamp, updatedAt: timestamp },

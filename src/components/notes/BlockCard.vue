@@ -1,32 +1,42 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { previewLabel } from '../../ai/protocol'
+import type { EditAction } from '../../ai/protocol'
+import { setBlockDraftPending } from '../../workspace/noteDrafts'
 import type { Block } from '../../data'
 import { useWorkspaceActions } from '../../composables/useWorkspaceActions'
 import { BLOCK_TYPE_LABELS } from '../../workspace/labels'
 import BlockMenu from './BlockMenu.vue'
 import MathFormula from './MathFormula.vue'
+import AppIcon from '../ui/AppIcon.vue'
 
 const props = defineProps<{
   block: Block
   active?: boolean
-  preview?: string | null
+  preview?: EditAction | null
   canUndo?: boolean
+  dragging?: boolean
+  dropSide?: 'before' | 'after'
+  reorderDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
   activate: []
-  dropBefore: [event: DragEvent]
+  dragStart: [event: PointerEvent]
+  move: [direction: 'up' | 'down']
   undoAi: []
 }>()
 
 const { updateBlock } = useWorkspaceActions()
 
+const root = ref<HTMLElement | null>(null)
 const title = ref('')
 const content = ref('')
 const extra = ref('')
 const focused = ref(false)
 const dirty = ref(false)
 const saving = ref(false)
+watch([dirty, saving], () => setBlockDraftPending(props.block.id, dirty.value || saving.value), { flush: 'sync' })
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let saveToken = 0
@@ -70,9 +80,9 @@ watch(
 )
 
 watch(
-  () => props.block.metadata.updatedAt,
+  () => [props.block.metadata.updatedAt, props.block.type, props.block.data],
   () => {
-    if (!focused.value && !dirty.value) readFromBlock()
+    if (!dirty.value && !saving.value) readFromBlock()
   },
 )
 
@@ -184,6 +194,15 @@ async function persist(): Promise<void> {
   }
 }
 
+function resizeTextareas(): void {
+  root.value?.querySelectorAll('textarea').forEach((el) => {
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  })
+}
+onMounted(resizeTextareas)
+watch([content, extra], async () => { await nextTick(); resizeTextareas() })
+
 function autoGrow(event: Event): void {
   const el = event.target
   if (!(el instanceof HTMLTextAreaElement)) return
@@ -201,25 +220,25 @@ function onFocus(): void {
   emit('activate')
 }
 
+// The header is a larger drag surface than the six-dot affordance. Buttons in
+// the header keep their own click behavior (menu, undo, and keyboard handle).
+function onHeaderPointerDown(event: PointerEvent): void {
+  const target = event.target
+  if (target instanceof Element && target.closest('button')) return
+  emit('dragStart', event)
+}
+
 async function onBlur(): Promise<void> {
   focused.value = false
   clearSaveTimer()
   await persist()
 }
 
-function onDragStart(event: DragEvent): void {
-  event.dataTransfer?.setData('text/nexora-block', props.block.id)
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-}
-
-function onDrop(event: DragEvent): void {
-  event.preventDefault()
-  emit('dropBefore', event)
-}
 
 onBeforeUnmount(() => {
   clearSaveTimer()
-  if (dirty.value) void persist()
+  if (dirty.value) void persist().finally(() => setBlockDraftPending(props.block.id, false))
+  else setBlockDraftPending(props.block.id, false)
 })
 
 const statusText = computed(() => {
@@ -231,26 +250,22 @@ const statusText = computed(() => {
 
 <template>
   <article
+    ref="root"
     class="block"
-    :class="[`type-${block.type}`, { active, preview: Boolean(preview), [`preview-${preview}`]: preview }]"
+    :class="[`type-${block.type}`, { active, dragging, [`drop-${dropSide}`]: dropSide, preview: Boolean(preview), [`preview-${preview}`]: preview }]"
     :data-block-id="block.id"
-    @dragover.prevent
-    @drop="onDrop"
   >
-    <div
-      class="grip"
-      draggable="true"
-      title="Drag to move"
-      @dragstart="onDragStart"
-      @click.stop
-    >
-      ⋮⋮
-    </div>
-
-    <header class="head">
+    <header class="head" @pointerdown="onHeaderPointerDown">
+      <button
+        type="button" class="grip" :disabled="reorderDisabled"
+        :aria-label="`拖动排序：${title || '未命名 Block'}`" title="拖动调整位置，也可用 ↑ / ↓ 移动"
+        aria-keyshortcuts="ArrowUp ArrowDown"
+        @pointerdown.stop="emit('dragStart', $event)" @dragstart.prevent @click.stop
+        @keydown.up.prevent="emit('move', 'up')" @keydown.down.prevent="emit('move', 'down')"
+      ><AppIcon name="grip" /></button>
       <div class="meta">
         <span class="badge">{{ BLOCK_TYPE_LABELS[block.type] }}</span>
-        <span v-if="preview" class="status preview-tag">AI 预览 · {{ preview }}</span>
+        <span v-if="preview" class="status preview-tag">待{{ previewLabel(preview) }}</span>
         <span v-else class="status">{{ statusText }}</span>
       </div>
       <div class="head-actions">
@@ -344,58 +359,66 @@ const statusText = computed(() => {
 <style scoped>
 .block {
   position: relative;
-  background: transparent;
-  border: 1px solid transparent;
+  /* Every block is a card; type-specific content can still use an inset tint. */
+  background: var(--panel);
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 0.55rem 0.7rem 0.7rem 1.35rem;
-  transition: background 140ms ease, border-color 140ms ease;
+  box-shadow: 0 1px 2px rgb(28 25 23 / 4%);
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
 }
 
 .block:hover,
 .block.active {
-  background: rgba(255, 253, 248, 0.72);
-  border-color: rgba(231, 224, 213, 0.9);
-}
-
-.block:hover .grip,
-.block.active .grip {
-  opacity: 1;
+  background: var(--panel);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  box-shadow: 0 4px 12px rgb(28 25 23 / 6%);
 }
 
 .grip {
-  position: absolute;
-  left: 0.15rem;
-  top: 0.7rem;
-  width: 1.1rem;
+  --icon-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  margin-left: -6px;
   border: 0;
+  border-radius: var(--control-radius);
   background: transparent;
   color: var(--muted);
-  letter-spacing: -0.05em;
-  font-size: 0.75rem;
-  line-height: 1;
   cursor: grab;
-  opacity: 0;
-  padding: 0.2rem 0;
+  padding: 0;
   user-select: none;
+  touch-action: none;
 }
-
-.grip:active {
-  cursor: grabbing;
-}
+.grip:hover:not(:disabled), .grip:focus-visible { color: var(--accent); background: var(--control-hover); }
+.grip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.grip:disabled { opacity: .4; cursor: default; }
+.grip:active { cursor: grabbing; }
+.block.dragging { opacity: .4; }
+.block.drop-before::before, .block.drop-after::after { content: ''; position: absolute; left: 0; right: 0; height: 3px; border-radius: 3px; background: var(--accent); pointer-events: none; }
+.block.drop-before::before { top: -4px; }
+.block.drop-after::after { bottom: -4px; }
 
 .head {
   display: flex;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.4rem;
   align-items: center;
   min-height: 1.4rem;
+  touch-action: none;
+  cursor: grab;
 }
+.head:active { cursor: grabbing; }
 
 .meta {
   display: flex;
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
+  flex: 1;
 }
 
 .badge {

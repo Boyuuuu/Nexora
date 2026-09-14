@@ -13,10 +13,11 @@ const props = defineProps<{
   workspace: Workspace
   expanded: boolean
   notesExpanded: boolean
+  graphsExpanded: boolean
   navigationBusy: boolean
 }>()
 const emit = defineEmits<{
-  toggle: []; toggleNotes: []; openNote: [id: string]; openCanvas: []; createNote: []; deleted: []
+  toggle: []; toggleNotes: []; toggleGraphs: []; openNote: [id: string]; openCanvas: []; openNoteCanvas: [id: string]; createNote: []; deleted: []
 }>()
 const { store, ui, renameWorkspace, deleteWorkspace } = useWorkspaceActions()
 const drag = useSidebarDrag()
@@ -61,7 +62,7 @@ async function loadNotes(): Promise<void> {
   }
 }
 
-watch(() => props.expanded && props.notesExpanded, (visible) => {
+watch(() => props.expanded && (props.notesExpanded || props.graphsExpanded), (visible) => {
   if (visible && !loaded.value) void loadNotes()
 }, { immediate: true })
 
@@ -150,17 +151,35 @@ async function onDelete(): Promise<void> {
         </ul>
         <p v-else class="hint">暂无笔记</p>
       </div>
-      <button
-        type="button"
-        class="tree-button canvas-button"
-        :class="{ active: activeWorkspace && ui.mode.value === 'canvas' }"
-        :aria-current="activeWorkspace && ui.mode.value === 'canvas' ? 'page' : undefined"
-        :disabled="navigationBusy"
-        @click="emit('openCanvas')"
-      >
-        <AppIcon name="canvas" />
-        <span>KnowledgeCanvas</span>
-      </button>
+      <div class="graphs-branch">
+        <button type="button" class="tree-button graph-toggle" :aria-expanded="graphsExpanded" @click="emit('toggleGraphs')">
+          <AppIcon name="chevron" class="chevron" :class="{ expanded: graphsExpanded }" />
+          <AppIcon name="canvas" />
+          <span>知识图谱</span>
+        </button>
+        <div v-show="graphsExpanded" class="graph-children">
+          <button
+            type="button"
+            class="tree-button canvas-button"
+            :class="{ active: activeWorkspace && ui.mode.value === 'canvas' && ui.canvasScope.value.type === 'workspace' }"
+            :disabled="navigationBusy"
+            @click="emit('openCanvas')"
+          >
+            <span>总图</span>
+          </button>
+          <button
+            v-for="note in summaries"
+            :key="`graph-${note.id}`"
+            type="button"
+            class="tree-button canvas-button note-graph-button"
+            :class="{ active: activeWorkspace && ui.mode.value === 'canvas' && ui.canvasScope.value.type === 'note' && ui.canvasScope.value.noteId === note.id }"
+            :disabled="navigationBusy"
+            @click="emit('openNoteCanvas', note.id)"
+          >
+            <span>{{ note.title }} · 子图</span>
+          </button>
+        </div>
+      </div>
     </div>
   </li>
 </template>
@@ -197,7 +216,11 @@ async function onDelete(): Promise<void> {
 .workspace-children { margin: 2px 0 10px 13px; padding-left: 7px; border-left: 1px solid var(--line); }
 .notes-children { margin: 0 0 2px 15px; padding-left: 7px; border-left: 1px solid var(--line); }
 .notes-list { list-style: none; margin: 0; padding: 0; }
+.graphs-branch { margin-top: 2px; }
+.graph-toggle { color: var(--muted); }
+.graph-children { margin: 0 0 2px 15px; padding-left: 7px; border-left: 1px solid var(--line); }
 .canvas-button { padding-left: 26px; white-space: nowrap; }
+.note-graph-button { color: var(--muted); font-size: 13px; }
 .count { margin-left: auto; color: var(--muted); font-size: 11px; }
 .hint { margin: 0; padding: 8px; color: var(--muted); font-size: 12px; }
 .load-error { padding: 8px; color: var(--muted); font-size: 12px; }

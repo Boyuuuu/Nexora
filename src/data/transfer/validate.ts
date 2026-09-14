@@ -126,6 +126,7 @@ export function parseBundle(raw: unknown, label: string): WorkspaceBundle {
       if (conversation.workspaceId !== workspace.id) {
         broken(`${label}.conversations[${index}] belongs to another workspace`)
       }
+      if (conversation.noteId && !notes.some((note) => note.id === conversation.noteId)) broken(`${label}.conversations[${index}] points at an unknown note`)
       return conversation
     },
   )

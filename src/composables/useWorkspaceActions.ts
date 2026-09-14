@@ -7,6 +7,8 @@ import { blockTitle, nodeTypeFromBlock } from '../workspace/labels'
 import { friendlyOperationError, logOperationFailure } from '../workspace/operationErrors'
 import { useWorkspaceUi } from './useWorkspaceUi'
 import { useAiEditor } from './useAiEditor'
+import { blockMoveAnchor, type BlockPlacement } from '../workspace/blockReorder'
+import { hasPendingNoteDrafts } from '../workspace/noteDrafts'
 
 export function useWorkspaceActions() {
   const store = useKnowledgeStore()
@@ -48,6 +50,7 @@ export function useWorkspaceActions() {
   }
 
   async function openCanvas(nodeId?: string): Promise<void> {
+    ui.setCanvasScope({ type: 'workspace' })
     ui.setMode('canvas')
     if (nodeId) {
       ui.requestFocusNode(nodeId)
@@ -80,6 +83,25 @@ export function useWorkspaceActions() {
     return true
   }
 
+  async function reorderBlock(draggedId: string, placement: BlockPlacement, originNoteId: string): Promise<boolean> {
+    const current = store.note.value
+    if (!current || current.id !== originNoteId || current.workspaceId !== store.workspace.value?.id) return false
+    const anchor = blockMoveAnchor(current.blocks.map((block) => block.id), draggedId, placement)
+    if (anchor === undefined) return false
+    if (hasPendingNoteDrafts(current)) { ui.showToast('请等待正文保存后再拖动排序。'); return false }
+    const expected = JSON.parse(JSON.stringify(current))
+    try {
+      // One atomic move preserves all block content and does not navigate after a background save.
+      await store.runBlockBatch(expected, [{ operation: 'move_block', workspace_id: current.workspaceId, note_id: current.id, block_id: draggedId, after_block_id: anchor }])
+      if (store.note.value?.id === originNoteId) ui.selectBlock(draggedId)
+      ui.showToast('Block 顺序已保存。')
+      return true
+    } catch {
+      ui.showToast('暂时无法保存顺序，笔记可能已变化。请重新打开笔记后再试。')
+      return false
+    }
+  }
+
   return {
     store,
     ui,
@@ -102,6 +124,7 @@ export function useWorkspaceActions() {
     openNote,
     openCanvas,
     createWorkspaceNote,
+    reorderBlock,
 
     async openWorkspaceNote(workspaceId: string, id: string): Promise<boolean> {
       if (!await switchToWorkspace(workspaceId)) return false
@@ -122,6 +145,20 @@ export function useWorkspaceActions() {
 
     async openWorkspaceCanvas(id: string): Promise<boolean> {
       if (!await switchToWorkspace(id)) return false
+      ui.setCanvasScope({ type: 'workspace' })
+      ui.setMode('canvas')
+      return true
+    },
+
+    async openWorkspaceNoteCanvas(workspaceId: string, noteId: string): Promise<boolean> {
+      if (!await switchToWorkspace(workspaceId)) return false
+      if (!store.notes.value.some((item) => item.id === noteId && item.workspaceId === workspaceId)) {
+        ui.showToast('这篇笔记已不存在，请刷新目录后重试。')
+        return false
+      }
+      await store.selectNote(noteId)
+      if (store.lastError.value || store.note.value?.id !== noteId) return false
+      ui.setCanvasScope({ type: 'note', noteId })
       ui.setMode('canvas')
       return true
     },
@@ -313,46 +350,14 @@ export function useWorkspaceActions() {
     },
 
     async moveBlockByDirection(blockId: string, direction: 'up' | 'down'): Promise<void> {
-      const blocks = store.blocks.value
-      const index = blocks.findIndex((block) => block.id === blockId)
-      if (index === -1) return
-      let after: string | null | undefined
-      if (direction === 'up') {
-        if (index === 0) return
-        after = index === 1 ? null : (blocks[index - 2]?.id ?? null)
-      } else {
-        const next = blocks[index + 1]
-        if (!next) return
-        after = next.id
-      }
-      const ws = workspaceId()
-      const note = noteId()
-      if (!ws || !note) return
-      await run({
-        operation: 'move_block',
-        workspace_id: ws,
-        note_id: note,
-        block_id: blockId,
-        after_block_id: after,
-      })
+      const index = store.blocks.value.findIndex((block) => block.id === blockId)
+      const neighbor = store.blocks.value[index + (direction === 'up' ? -1 : 1)]
+      if (index < 0 || !neighbor || !store.note.value) return
+      await reorderBlock(blockId, { targetId: neighbor.id, after: direction === 'down' }, store.note.value.id)
     },
 
     async dropBlockBefore(draggedId: string, targetId: string): Promise<void> {
-      if (draggedId === targetId) return
-      const remaining = store.blocks.value.filter((block) => block.id !== draggedId)
-      const index = remaining.findIndex((block) => block.id === targetId)
-      if (index === -1) return
-      const after = index === 0 ? null : (remaining[index - 1]?.id ?? null)
-      const ws = workspaceId()
-      const note = noteId()
-      if (!ws || !note) return
-      await run({
-        operation: 'move_block',
-        workspace_id: ws,
-        note_id: note,
-        block_id: draggedId,
-        after_block_id: after,
-      })
+      if (store.note.value) await reorderBlock(draggedId, { targetId, after: false }, store.note.value.id)
     },
 
     async convertBlockToNode(block: Block): Promise<void> {
@@ -379,10 +384,15 @@ export function useWorkspaceActions() {
       useAiEditor().askAboutBlock(block.id, prompt)
     },
 
-    async createNode(label: string, type: GraphNodeType, position?: GraphNodePosition): Promise<void> {
+    async createNode(
+      label: string,
+      type: GraphNodeType,
+      position?: GraphNodePosition,
+      options?: { id?: string; noteId?: string },
+    ): Promise<string | null> {
       const ws = workspaceId()
-      if (!ws) return
-      const id = createId('node')
+      if (!ws) return null
+      const id = options?.id ?? createId('node')
       const result = await run({
         operation: 'create_node',
         workspace_id: ws,
@@ -390,10 +400,12 @@ export function useWorkspaceActions() {
           id,
           label: label.trim() || 'Untitled',
           type,
+          ...(options?.noteId ? { note_id: options.noteId } : {}),
           position: position ?? { x: 160, y: 120 },
         },
       })
       if (result.success) ui.selectNode(id)
+      return result.success ? id : null
     },
 
     async moveNode(nodeId: string, position: GraphNodePosition): Promise<boolean> {

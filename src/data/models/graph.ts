@@ -32,6 +32,8 @@ export interface GraphNode {
   type: GraphNodeType
   /** Optional link to the Note that explains this node. */
   noteId?: string
+  /** Optional link to a Block when this node belongs to a Note subgraph. */
+  blockId?: string
   /** Absent until the node has been placed on a canvas. */
   position?: GraphNodePosition
   metadata?: Record<string, unknown>

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
-import type { GraphEdgeType, GraphNode, GraphNodePosition } from '../../data'
+import type { GraphEdge, GraphEdgeType, GraphNode, GraphNodePosition } from '../../data'
 import { useWorkspaceActions } from '../../composables/useWorkspaceActions'
+import type { CanvasScope } from '../../composables/useWorkspaceUi'
 import { EDGE_TYPE_LABELS } from '../../workspace/labels'
 import { arrangeGraph } from '../../workspace/canvasLayout'
 import { connectionPath, curveBetween, fallbackPosition, fitViewport, NODE_H, NODE_W, portAt, type PortSide } from '../../workspace/canvasGeometry'
@@ -12,6 +13,8 @@ import GraphNodeCard from './GraphNodeCard.vue'
 
 type Point = GraphNodePosition
 type SavedPosition = { node_id: string; position: Point | null }
+
+const props = defineProps<{ scope: CanvasScope }>()
 type Drag =
   | { kind: 'pan'; pointer: number; x: number; y: number; panX: number; panY: number }
   | { kind: 'node'; pointer: number; id: string; ox: number; oy: number; x: number; y: number; moved: boolean }
@@ -41,8 +44,49 @@ let disposed = false
 let followFit = true
 let resizeObserver: ResizeObserver | null = null
 
-const nodes = computed(() => store.graph.value.nodes)
-const edges = computed(() => store.graph.value.edges)
+const isWorkspaceScope = computed(() => props.scope.type === 'workspace')
+const scopedNote = computed(() => {
+  const noteId = props.scope.type === 'note' ? props.scope.noteId : null
+  return noteId ? store.notes.value.find(note => note.id === noteId) ?? null : null
+})
+const nodes = computed<GraphNode[]>(() => {
+  if (isWorkspaceScope.value) {
+    return store.notes.value.map((note, index) => {
+      const existing = store.graph.value.nodes.find(node => node.noteId === note.id)
+      return {
+        id: existing?.id ?? `note:${note.id}`,
+        workspaceId: note.workspaceId,
+        label: note.title,
+        type: 'topic',
+        noteId: note.id,
+        position: existing?.position ?? fallbackPosition(index),
+      }
+    })
+  }
+  return (scopedNote.value?.blocks ?? []).map((block, index) => ({
+    id: `block:${block.id}`,
+    workspaceId: scopedNote.value!.workspaceId,
+    label: ('title' in block.data && block.data.title) || `Block ${index + 1}`,
+    type: block.type === 'math' ? 'mechanism' : block.type === 'code' ? 'component' : block.type === 'exploration' ? 'topic' : 'concept',
+    noteId: scopedNote.value!.id,
+    blockId: block.id,
+    position: fallbackPosition(index),
+  }))
+})
+const edges = computed<GraphEdge[]>(() => {
+  if (!isWorkspaceScope.value) return []
+  const noteIds = new Map(store.graph.value.nodes.map(node => [node.id, node.noteId]))
+  const noteNodeIds = new Map(nodes.value.flatMap(node => node.noteId ? [[node.noteId, node.id] as const] : []))
+  const seen = new Set<string>()
+  return store.graph.value.edges.flatMap(edge => {
+    const sourceNote = noteIds.get(edge.source), targetNote = noteIds.get(edge.target)
+    if (!sourceNote || !targetNote || sourceNote === targetNote) return []
+    const key = [sourceNote, targetNote].sort().join(':')
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [{ ...edge, id: `note-edge:${key}`, source: noteNodeIds.get(sourceNote) ?? `note:${sourceNote}`, target: noteNodeIds.get(targetNote) ?? `note:${targetNote}`, type: 'relates' as const }]
+  })
+})
 const positions = computed(() => new Map(nodes.value.map((node, index) => [node.id, drafts[node.id] ?? node.position ?? fallbackPosition(index)])))
 const notesById = computed(() => new Map(store.notes.value.map(note => [note.id, note.title])))
 const links = computed(() => {
@@ -125,7 +169,7 @@ function onBackgroundDown(event: PointerEvent): void {
   beginDrag({ kind: 'pan', pointer: event.pointerId, x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y })
 }
 function onNodeDown(node: GraphNode, event: PointerEvent): void {
-  if (event.button !== 0 || drag || interactionLocked.value) return
+  if (event.button !== 0 || drag || interactionLocked.value || !isWorkspaceScope.value) return
   const pos = positions.value.get(node.id)!, world = worldFromEvent(event)
   beginDrag({ kind: 'node', pointer: event.pointerId, id: node.id, ox: world.x - pos.x, oy: world.y - pos.y, x: event.clientX, y: event.clientY, moved: false })
 }
@@ -228,6 +272,11 @@ function fit(animate = true): void {
 }
 async function resetLayout(undo = false): Promise<void> {
   if (!nodes.value.length || interactionLocked.value || drag) return
+  if (!isWorkspaceScope.value) {
+    fit()
+    ui.showToast('子图中的 Block 关系将在确认后显示。')
+    return
+  }
   stopAnimation()
   const before = nodes.value.map(node => ({ node_id: node.id, position: node.position ? { ...node.position } : null }))
   const arranged = arrangeGraph(store.graph.value)
@@ -256,6 +305,39 @@ function focusNode(id: string): void {
   void animateView({ x: rect.width / 2 - (pos.x + NODE_W / 2) * zoom.value, y: rect.height / 2 - (pos.y + NODE_H / 2) * zoom.value, zoom: zoom.value })
   ui.selectNode(id)
 }
+function selectScopedNode(node: GraphNode): void {
+  if (props.scope.type === 'workspace' && node.noteId) {
+    ui.setCanvasScope({ type: 'note', noteId: node.noteId })
+    ui.setMode('canvas')
+    return
+  }
+  if (props.scope.type === 'note' && node.blockId) {
+    ui.setMode('note')
+    ui.selectBlock(node.blockId)
+    return
+  }
+  ui.selectNode(node.id)
+}
+function openScopedNote(node: GraphNode): void {
+  if (props.scope.type === 'workspace' && node.noteId) {
+    ui.setCanvasScope({ type: 'note', noteId: node.noteId })
+    ui.setMode('canvas')
+    return
+  }
+  if (node.noteId) void openNote(node.noteId)
+}
+function backToWorkspaceGraph(): void {
+  ui.setCanvasScope({ type: 'workspace' })
+  ui.setMode('canvas')
+}
+async function ensureWorkspaceNoteNodes(): Promise<void> {
+  if (!isWorkspaceScope.value || !store.workspace.value) return
+  for (const [index, note] of store.notes.value.entries()) {
+    if (store.graph.value.nodes.some(node => node.noteId === note.id)) continue
+    await createNode(note.title, 'topic', fallbackPosition(index), { id: `note:${note.id}`, noteId: note.id })
+  }
+  ui.selectNode(null)
+}
 async function onCreateNode(label: string, type: Parameters<typeof createNode>[1]): Promise<void> {
   creatingNode.value = false
   const rect = surface.value?.getBoundingClientRect()
@@ -281,11 +363,14 @@ watch(() => JSON.stringify([nodes.value.map(node => [node.id, node.position]), e
 })
 onMounted(() => {
   void nextTick(() => {
-    const pending = ui.consumeFocusNode()
-    if (pending) focusNode(pending)
-    else fit(false)
-    resizeObserver = new ResizeObserver(() => { if (followFit && !drag && !arranging.value) fit(false) })
-    if (surface.value) resizeObserver.observe(surface.value)
+    void (async () => {
+      await ensureWorkspaceNoteNodes()
+      const pending = ui.consumeFocusNode()
+      if (pending) focusNode(pending)
+      else fit(false)
+      resizeObserver = new ResizeObserver(() => { if (followFit && !drag && !arranging.value) fit(false) })
+      if (surface.value) resizeObserver.observe(surface.value)
+    })()
   })
 })
 onBeforeUnmount(() => {
@@ -300,11 +385,16 @@ onBeforeUnmount(() => {
   <section class="canvas" :aria-busy="arranging || saving">
     <header class="toolbar">
       <div class="heading">
-        <h1>Knowledge Canvas</h1>
+        <nav v-if="!isWorkspaceScope" class="breadcrumbs" aria-label="图谱层级">
+          <button type="button" @click="backToWorkspaceGraph">Workspace 总图</button>
+          <span aria-hidden="true">›</span>
+          <strong>{{ scopedNote?.title ?? 'Note 子图' }}</strong>
+        </nav>
+        <h1>{{ isWorkspaceScope ? 'Workspace 总图' : `${scopedNote?.title ?? 'Note'} · Block 子图` }}</h1>
         <p>{{ nodes.length }} 个节点 <span>·</span> {{ edges.length }} 条连接</p>
       </div>
       <div class="actions">
-        <IconButton class="canvas-button" icon="plus" text="节点" label="新建节点" :disabled="interactionLocked" @click="creatingNode = true" />
+        <IconButton v-if="isWorkspaceScope" class="canvas-button" icon="plus" text="节点" label="新建节点" :disabled="interactionLocked" @click="creatingNode = true" />
         <IconButton class="canvas-button" icon="reset" text="一键复位" label="自动整理节点并居中" :disabled="!nodes.length || interactionLocked || !!dragKind" @click="resetLayout()" />
       </div>
     </header>
@@ -344,9 +434,9 @@ onBeforeUnmount(() => {
           :style="{ transform: 'translate(' + positions.get(node.id)!.x + 'px, ' + positions.get(node.id)!.y + 'px)' }"
           :node="node" :selected="ui.selectedNodeId.value === node.id"
           :dragging="draggingNode === node.id" :connecting="!!connection" :drop-target="connectionTarget?.id === node.id"
-          :note-title="node.noteId ? notesById.get(node.noteId) : undefined" :link-count="links.get(node.id) ?? 0"
-          @pointerdown="onNodeDown(node, $event)" @select="ui.selectNode(node.id)"
-          @open-note="node.noteId && openNote(node.noteId)" @connect="(event, side) => onConnectStart(node, event, side)"
+          :readonly="!isWorkspaceScope" :note-title="node.noteId ? notesById.get(node.noteId) : undefined" :link-count="links.get(node.id) ?? 0"
+          @pointerdown="onNodeDown(node, $event)" @select="selectScopedNode(node)"
+          @open-note="openScopedNote(node)" @connect="(event, side) => onConnectStart(node, event, side)"
         />
       </div>
       <div v-if="nodes.length" class="view-controls" @pointerdown.stop>
@@ -355,7 +445,8 @@ onBeforeUnmount(() => {
         <IconButton v-if="undoLayout" icon="undo" text="撤销复位" label="恢复复位前的布局" :disabled="interactionLocked" @click="resetLayout(true)" />
       </div>
       <p v-if="connection" class="hint">拖到目标节点后松开，Esc 取消</p>
-      <p v-else-if="nodes.length && !edges.length" class="hint">拖动节点四周的连接点，建立关系</p>
+      <p v-else-if="nodes.length && !edges.length && isWorkspaceScope" class="hint">拖动节点四周的连接点，建立关系</p>
+      <p v-else-if="nodes.length && !edges.length" class="hint">Block 节点已生成，AI 关系建议确认后会显示在这里。</p>
     </div>
     <CreateNodeDialog v-if="creatingNode" @create="onCreateNode" @cancel="creatingNode = false" />
     <CreateEdgeDialog v-if="pendingEdge" :source-label="pendingEnds.source" :target-label="pendingEnds.target" @create="onCreateEdge" @cancel="pendingEdge = null" />
@@ -366,6 +457,10 @@ onBeforeUnmount(() => {
 .canvas { position: relative; height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--panel); z-index: 4; }
 .heading { min-width: 0; }
+.breadcrumbs { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; color: var(--muted); font-size: 12px; }
+.breadcrumbs button { border: 0; padding: 0; background: transparent; color: var(--accent); font-size: inherit; }
+.breadcrumbs button:hover { text-decoration: underline; }
+.breadcrumbs strong { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 h1 { margin: 0; font: 600 18px/1.4 var(--sans); }
 .heading p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
 .heading p span { margin: 0 5px; }

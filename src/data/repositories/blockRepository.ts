@@ -12,7 +12,7 @@ import type { Note } from '../models/note'
 import { createId } from '../utils/id'
 import { nowIso } from '../utils/time'
 import { validateBlock, validateNote } from '../validation'
-import { NotFoundError } from './internal'
+import { ConflictError, loadWorkspace, NotFoundError } from './internal'
 
 export interface CreateBlockOptions {
   source?: BlockSource
@@ -88,6 +88,23 @@ function indexOfBlock(blocks: Block[], blockId: string): number {
 
 export const blockRepository = {
   createBlock,
+
+  async compareAndSwap(expected: Note, blocks: Block[]): Promise<Note> {
+    return runTransaction([STORES.notes, STORES.workspaces], 'readwrite', async (ctx) => {
+      const notes = ctx.store<Note>(STORES.notes)
+      const current = await notes.get(expected.id)
+      if (!current) throw new NotFoundError('原笔记已删除，未写入 AI 改动。')
+      await loadWorkspace(ctx, expected.workspaceId)
+      if (current.workspaceId !== expected.workspaceId || current.metadata.updatedAt !== expected.metadata.updatedAt
+        || JSON.stringify(current.blocks) !== JSON.stringify(expected.blocks)) {
+        throw new ConflictError('笔记在生成期间发生了变化，未覆盖你的编辑。请重新整理后预览。')
+      }
+      const updated = { ...current, blocks, metadata: { ...current.metadata, updatedAt: nowIso() } }
+      validateNote(updated)
+      await notes.put(updated)
+      return updated
+    })
+  },
 
   async getByNoteId(noteId: string): Promise<Block[]> {
     const note = await runTransaction(STORES.notes, 'readonly', (ctx) =>

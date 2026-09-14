@@ -119,6 +119,7 @@ function remapBundle(bundle: PreparedBundle): PreparedBundle {
   const conversations: Conversation[] = bundle.conversations.map((conversation) => ({
     ...conversation,
     id: mapped(conversationIds, conversation.id, 'conversation'),
+    ...(conversation.noteId ? { noteId: mapped(noteIds, conversation.noteId, 'conversation note') } : {}),
     workspaceId,
     messages: conversation.messages.map((message) => ({ ...message, id: createId('msg') })),
   }))

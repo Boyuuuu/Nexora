@@ -18,10 +18,11 @@ export interface ConversationMetadata {
   updatedAt: string
 }
 
-/** Structure only — no model or API is wired to this yet. */
+/** Chat history, optionally scoped to one note. */
 export interface Conversation {
   id: string
   workspaceId: string
+  noteId?: string
   title?: string
   messages: ConversationMessage[]
   metadata: ConversationMetadata

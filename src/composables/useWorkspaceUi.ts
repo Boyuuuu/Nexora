@@ -1,6 +1,9 @@
 import { computed, ref } from 'vue'
 
 export type WorkspaceMode = 'note' | 'canvas' | 'explore'
+export type CanvasScope =
+  | { type: 'workspace' }
+  | { type: 'note'; noteId: string }
 
 export interface AiMessage {
   id: string
@@ -24,6 +27,7 @@ const RECENT_KEY = 'nexora.workspace.recentNoteIds'
 const PANELS_KEY = 'nexora.workspace.panels'
 
 const mode = ref<WorkspaceMode>('note')
+const canvasScope = ref<CanvasScope>({ type: 'workspace' })
 const selectedBlockId = ref<string | null>(null)
 const selectedNodeId = ref<string | null>(null)
 const selectedEdgeId = ref<string | null>(null)
@@ -80,6 +84,7 @@ readPanels()
 export function useWorkspaceUi() {
   return {
     mode,
+    canvasScope,
     selectedBlockId,
     selectedNodeId,
     selectedEdgeId,
@@ -111,6 +116,13 @@ export function useWorkspaceUi() {
         isAiPanelOpen.value = true
         persistPanels()
       }
+    },
+
+    setCanvasScope(scope: CanvasScope): void {
+      canvasScope.value = scope
+      selectedNodeId.value = null
+      selectedEdgeId.value = null
+      inspectOpen.value = false
     },
 
     toggleSidebar(): void {

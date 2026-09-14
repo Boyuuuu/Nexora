@@ -1,6 +1,7 @@
 import { runTransaction } from '../db/database'
 import { INDEXES, STORES } from '../db/schema'
 import type { Block } from '../models/block'
+import type { Conversation } from '../models/conversation'
 import type { Note } from '../models/note'
 import type { Workspace } from '../models/workspace'
 import { createId } from '../utils/id'
@@ -94,7 +95,7 @@ export const noteRepository = {
 
   /** Also drops the workspace reference and detaches graph nodes pointing here. */
   async delete(id: string): Promise<void> {
-    await runTransaction([STORES.workspaces, STORES.notes], 'readwrite', async (ctx) => {
+    await runTransaction([STORES.workspaces, STORES.notes, STORES.conversations], 'readwrite', async (ctx) => {
       const notes = ctx.store<Note>(STORES.notes)
       const note = await notes.get(id)
       if (!note) {
@@ -102,6 +103,9 @@ export const noteRepository = {
       }
 
       await notes.delete(id)
+      const conversations = ctx.store<Conversation>(STORES.conversations)
+      const attached = (await conversations.getAllByIndex(INDEXES.byWorkspaceId, note.workspaceId)).filter((item) => item.noteId === id)
+      for (const item of attached) await conversations.delete(item.id)
 
       const workspace = await ctx.store<Workspace>(STORES.workspaces).get(note.workspaceId)
       if (!workspace) {
@@ -111,6 +115,7 @@ export const noteRepository = {
       await saveWorkspace(ctx, {
         ...workspace,
         noteIds: withoutId(workspace.noteIds, id),
+        conversationIds: workspace.conversationIds.filter((cid) => !attached.some((item) => item.id === cid)),
         graph: {
           ...workspace.graph,
           nodes: workspace.graph.nodes.map((node) => {

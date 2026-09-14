@@ -4,6 +4,7 @@ import type { Block } from '../../data'
 import { ASK_AI_PROMPTS } from '../../composables/useWorkspaceUi'
 import { useWorkspaceActions } from '../../composables/useWorkspaceActions'
 import { useAiEditor } from '../../composables/useAiEditor'
+import AppIcon from '../ui/AppIcon.vue'
 
 const props = defineProps<{ block: Block }>()
 
@@ -62,7 +63,7 @@ function ask(text: string): void {
 
 <template>
   <div ref="root" class="menu-wrap">
-    <button type="button" class="handle" aria-label="Block menu" @click="open = !open">⋮⋮</button>
+    <button type="button" class="handle" aria-label="Block menu" title="更多操作" @click="open = !open"><AppIcon name="more" /></button>
     <div v-if="open" class="menu">
       <button type="button" @click="focusBlock">Focus</button>
       <button type="button" @click="duplicate">Duplicate</button>
@@ -88,13 +89,21 @@ function ask(text: string): void {
 }
 
 .handle {
+  --icon-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--control-radius);
   border: 0;
   background: transparent;
   color: var(--muted);
   padding: 0.15rem 0.35rem;
   letter-spacing: 0.08em;
-  opacity: 0;
+  opacity: .65;
 }
+.handle:hover { background: var(--control-hover); }
 
 .menu-wrap:hover .handle,
 .handle:focus-visible {
