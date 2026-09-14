@@ -1,5 +1,284 @@
-# Vue 3 + Vite
+# Nexora（知域）使用文档
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+> 产品仓库：https://github.com/Boyuuuu/ai-learning-platform  
+> 技术栈：Vue 3 + Vite + TypeScript，数据默认保存在本机浏览器 **IndexedDB**（无需自建后端数据库）。  
+> 文档对应当前 `main` 分支能力；更细的数据层与 AI 协议见同目录其他文档。
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+---
+
+## 1. 开发初心
+
+学习时最常见的困境不是「搜不到资料」，而是：
+
+- 聊天里聊明白了，一关掉窗口，结论就散了；
+- 笔记软件能记，但很难和「概念关系」「下一步该学什么」连在一起；
+- 直接让 AI 改笔记又怕写坏，缺少对照与撤销。
+
+**Nexora（知域）** 想做的是一块「可沉淀的个人知识工作区」：
+
+1. **以 Workspace 为主题容器**，人工定学习主题，而不是让模型乱建课程库；
+2. **用 Note + Block 结构化记笔记**（概念、直觉、公式、代码、例子等），而不是一篇混沌长文；
+3. **用知识图（Canvas）看见概念之间的关系**，方便跳转与联想；
+4. **右侧 AI 先对话、再整理成笔记改动建议**——必须预览确认后才写入，并可撤销。
+
+核心信念：**模型负责想清楚，人负责决定写进笔记什么；结构由应用协议约束，内容由你确认。**
+
+---
+
+## 2. 核心功能
+
+### 2.1 工作区（Workspace）
+
+- 创建 / 重命名 / 删除工作区
+- 每个工作区有独立的笔记列表与知识图
+- 数据存在当前浏览器本地，换电脑或清站点数据会丢失（可用导出备份，见下文）
+
+### 2.2 笔记（Note）与知识块（Block）
+
+- 在工作区内创建多篇 Note
+- Note 由若干 **Block** 组成，常见类型包括：
+  - `text` / `concept` / `intuition` / `example`：标题 + 正文
+  - `math`：标题 + LaTeX + 说明（KaTeX 渲染）
+  - `code`：标题 + 语言 + 代码
+  - `exploration`：标题 + 条目列表
+- 支持手动增删改、拖拽调整顺序等编辑操作
+- 划选文字可 **引用** 到右侧 AI，让模型针对片段回答或整理
+
+### 2.3 知识图（Canvas）
+
+- 可视化工作区内的节点与边
+- 节点可关联到 Note，方便从图跳进正文
+- 侧栏有导航感的小图 / 列表，完整编辑在主 Canvas
+
+### 2.4 AI 对话与笔记整理（右侧面板）
+
+这是当前主打的 AI 能力，流程是：
+
+```
+提问 →（可选）知乎搜索参考 → 模型回答
+      →（可选）生成「笔记改动预览」
+      → 你确认「应用」后才写入 Blocks
+```
+
+要点：
+
+| 能力 | 说明 |
+|------|------|
+| 单模型 / 双模型 | 单模型：知乎既聊天也整理；双模型：知乎聊天，第二个 OpenAI 兼容模型专门整理 JSON |
+| 回答后生成笔记预览 | 勾选后，每轮回答后再产出改动建议；**不自动落盘** |
+| 预览对照 | 显示修改 / 新增 / 删除，原文与改后对照，可定位原文 |
+| 应用 / 放弃 / 重新整理 | 只有「应用」才写入；有未确认预览时，该 Note 不能开下一轮对话 |
+| 撤销 | 每篇 Note 保留本次会话最近一次已应用任务的撤销 |
+| 划选引用 | 笔记里框选文字 → 引用到对话，模型更聚焦 |
+
+> 详细协议与质量规则见 [ai-note-edit-skill.md](./ai-note-edit-skill.md)。  
+> 数据分层与 Operations 见 [data-layer.md](./data-layer.md)。
+
+### 2.5 本地数据与导入导出
+
+- 运行时数据：浏览器 IndexedDB（库名约 `nexora-db`）
+- 模型密钥与模式：`localStorage`（只存在本机）
+- 工作区支持导入 / 导出（用于备份或迁移；具体入口在工作区界面相关操作）
+
+---
+
+## 3. 网站使用方式
+
+### 3.1 推荐上手路径
+
+1. **启动本地站点**（见第 5 节）并打开浏览器页面  
+2. **创建 Workspace**，起一个主题名（例如「机器学习入门」）  
+3. **新建 Note**，手动加几个 Block，或先空着交给 AI 整理  
+4. 打开右侧 **AI 面板**，先完成 **模型设置**（见第 4 节）  
+5. 勾选「**回答后生成笔记预览**」，问一个具体问题  
+6. 阅读回答 → 检查预览里的改动 → 点「应用」写入笔记  
+7. 需要时到 **Canvas** 建节点、连边，把 Note 挂到图上  
+
+### 3.2 界面大致布局
+
+| 区域 | 作用 |
+|------|------|
+| 左侧边栏 | 工作区树、笔记列表、搜索入口、导入导出等 |
+| 中间主区 | Note 编辑器，或知识图画布 |
+| 右侧 AI | 对话、引用、预览、模型设置 |
+
+### 3.3 日常编辑建议
+
+- **问题尽量具体**：例如「用直觉解释梯度下降，并补一个小例子」，比「讲一下 ML」更容易得到可落笔记的块。  
+- **善用引用**：对不懂的句子划选引用，再问「解释这段」或「改成更适合学习的结构」。  
+- **先预览再应用**：整理结果可能建议更新旧块或新增块；不合适就放弃或重新整理。  
+- **有预览未处理时**：先应用 / 放弃，再继续问下一题（同一篇 Note）。  
+- **手动改过正文后**：旧预览可能失效，需要重新整理。  
+
+### 3.4 常见场景示例
+
+**场景 A：从零建一篇概念笔记**  
+打开空 Note → 提问「什么是注意力机制，为什么重要」→ 勾选生成预览 → 应用若干 concept / intuition 块。
+
+**场景 B：纠错与补例子**  
+在已有 Block 上划选一段 → 引用 → 「这段表述有误，请纠正并补一个例子」→ 预览对照后应用。
+
+**场景 C：边聊边拓图**  
+多篇 Note 写好后，在 Canvas 上为概念建节点并连边，形成自己的知识地图（图结构以你手工维护为主）。
+
+---
+
+## 4. API 如何配置
+
+所有密钥默认只存在**当前浏览器**，不会随 Git 仓库分发。请勿把密钥提交进代码或公开 Issue。
+
+### 4.1 在界面里配置（推荐）
+
+1. 打开右侧 AI 面板  
+2. 进入 **模型设置**  
+3. 选择模式：
+
+#### 单模型（默认）
+
+- 只需配置 **知乎开放平台 Access Secret**  
+- 选择直答档位：`快速回答` / `深度思考` / `智能思考`  
+- 可选：「回答时参考知乎搜索」  
+- 聊天与笔记整理都走知乎；整理侧用文本 JSON，应用层会校验；格式异常可重试，**不会把回答原文原样塞进 Block**
+
+#### 双模型（推荐，整理更稳）
+
+| 区块 | 填写内容 |
+|------|----------|
+| 知乎模型 | Access Secret + 直答档位；负责**聊天回答**（及可选搜索） |
+| 整理模型 | OpenAI 兼容接口的 API Key、模型 ID、接口地址；负责**笔记改动 JSON** |
+
+整理模型格式：
+
+- **JSON Schema**（优先）：服务商支持 `response_format.json_schema` 时选用（如 OpenAI `gpt-4o-mini` 等）  
+- **JSON Object**：仅保证合法 JSON（如部分 DeepSeek 配置）；字段仍由应用校验  
+
+开发环境下整理模型地址可自行填写，例如：
+
+- `/openai`（若使用本仓库 Vite 代理，需配合 `VITE_OPENAI_PROXY_TARGET`）
+- 或其他兼容 Chat Completions 的完整地址 / 自建代理
+
+默认**不会**预填模型 ID 或接口地址，需在设置中手动填写（或用环境变量预填）。 
+
+知乎接口开发默认：
+
+- `/zhida` → 代理到 `https://developer.zhihu.com`
+
+### 4.2 用环境变量预填（可选）
+
+在项目根目录创建 **`.env.local`**（已被 `.gitignore` 忽略，不会提交）：
+
+```bash
+# 知乎开放平台 Access Secret
+VITE_ZHIDA_ACCESS_SECRET=你的知乎密钥
+
+# 双模型时的整理模型（可选；不设则界面里手动填，代码无默认模型/地址）
+VITE_STRUCTURED_API_KEY=你的整理模型密钥
+VITE_STRUCTURED_MODEL=gpt-4o-mini
+VITE_STRUCTURED_BASE_URL=/openai
+
+# 若使用 /openai 开发代理：转发到哪里（默认 OpenAI）
+VITE_OPENAI_PROXY_TARGET=https://api.openai.com
+```
+
+修改 `.env.local` 或 `vite.config.js` 代理后，需要**重启** `npm run dev`。
+
+### 4.3 密钥从哪里申请
+
+| 服务 | 用途 | 获取方式 |
+|------|------|----------|
+| 知乎开放平台 | 直答聊天、站内搜索 | [developer.zhihu.com](https://developer.zhihu.com) 个人中心创建 Access Secret |
+| OpenAI 或其他兼容商 | 双模型下的「整理」 | 各服务商控制台创建 API Key；需支持 Chat Completions，最好支持 JSON Schema / JSON Object |
+
+### 4.4 配置检查清单
+
+- [ ] 知乎 Secret 已填，单模型可以正常出回答  
+- [ ] 若勾选搜索，回答上下文里能用到站内摘要（失败不阻断聊天）  
+- [ ] 双模型时整理 Key / 模型 ID / 地址已填，能生成预览  
+- [ ] 未把 `.env.local` 或密钥贴进公开仓库  
+
+---
+
+## 5. 从 GitHub 本地部署
+
+### 5.1 环境要求
+
+- **Node.js**：建议 20 LTS 或更新的现行 LTS  
+- **包管理**：npm（仓库默认脚本为 npm）  
+- **Git**  
+- 现代浏览器（Chrome / Edge / Firefox 等，需支持 IndexedDB）
+
+### 5.2 克隆与安装
+
+```bash
+git clone https://github.com/Boyuuuu/ai-learning-platform.git
+cd ai-learning-platform
+npm install
+```
+
+### 5.3 开发模式运行
+
+```bash
+npm run dev
+```
+
+终端会给出本地地址（一般为 `http://localhost:5173/`）。用浏览器打开即可。
+
+可选：按第 4.2 节写好 `.env.local` 再启动，减少每次手填密钥。
+
+### 5.4 生产构建与本地预览
+
+```bash
+npm run build
+npm run preview
+```
+
+`build` 会先做 TypeScript 检查再打包。  
+注意：纯静态部署时，浏览器直连第三方 API 可能遇到 **CORS**；开发态依赖 Vite 的 `/zhida`、`/openai` 代理。若要部署到公网静态托管，通常还需要：
+
+- 自备同源反向代理，或  
+- 自建极薄的后端转发层  
+
+再把设置里的接口地址改成你的代理地址。
+
+### 5.5 常用脚本
+
+| 命令 | 作用 |
+|------|------|
+| `npm run dev` | 本地开发服务器 |
+| `npm run build` | 类型检查 + 生产构建 |
+| `npm run preview` | 预览构建产物 |
+| `npm run typecheck` | 仅类型检查 |
+| `npm run test:ai-editing` | AI 编辑相关自动化验证（不调真实模型） |
+| `npm run test:canvas` 等 | 其他界面 / 行为脚本测试 |
+
+### 5.6 更新到最新代码
+
+```bash
+git pull origin main
+npm install
+npm run dev
+```
+
+若依赖有变更，务必重新 `npm install`。
+
+### 5.7 数据与隐私注意
+
+- 笔记、图、对话默认在**本机浏览器**；清缓存 / 换浏览器 ≈ 换了一套数据  
+- 重要内容请使用产品内的**导出**做备份  
+- API 密钥只放设置或 `.env.local`，不要写进源码后 `git push`  
+
+---
+
+## 6. 延伸阅读
+
+| 文档 | 内容 |
+|------|------|
+| [ai-note-edit-skill.md](./ai-note-edit-skill.md) | AI 对话、整理、预览、保存与验证细节 |
+| [data-layer.md](./data-layer.md) | Workspace / Note / Block / Graph / Operations / IndexedDB |
+
+---
+
+## 7. 一句话总结
+
+**Nexora = 本地知识工作区（笔记 + 知识图）+ 可预览确认的 AI 整理。**  
+先把主题放进 Workspace，边学边问、边问边沉淀；模型可以很灵活地回答，但写入笔记必须经过你的确认。

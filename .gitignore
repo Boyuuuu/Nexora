@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# CloudBase / AI Works deploy helper outputs
+_tmp/
+*.zip
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
